@@ -1,0 +1,1 @@
+# CollisionChecker 统一入口
