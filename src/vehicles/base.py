@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Tuple, List
+from .config import VehicleConfig
+import math
 
 # 定义通用的数据结构，方便作为接口的输入输出
 @dataclass
@@ -15,13 +17,15 @@ class VehicleBase(ABC):
     """
     车辆接口基类
     """
+    def __init__(self, config: VehicleConfig):
+        self.config = config
     
-    @abstractmethod
-    def get_shape(self) -> Tuple[float, float]:
-        """返回 (width, length)"""
-        pass
+    @staticmethod
+    def normalize_angle(angle: float) -> float:
+        """工具函数：基类提供通用数学计算"""
+        return (angle + math.pi) % (2 * math.pi) - math.pi
 
     @abstractmethod
-    def kinematic_propagate(self, start_state: State, control: tuple, dt: float) -> State:
-        """输入当前状态和控制量，计算下一时刻状态"""
+    def kinematic_propagate(self, start: State, control: tuple, dt: float) -> State:
+        """核心物理推演，留给子类实现"""
         pass

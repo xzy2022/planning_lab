@@ -2,11 +2,13 @@
 # src/vehicles/ackermann.py
 import math
 from .base import VehicleBase, State  # 导入接口
+from .config import AckermannConfig  # 导入配置类
+from typing import Tuple
 
 class AckermannVehicle(VehicleBase):
-    def __init__(self, wheelbase: float, max_steer: float):
-        self.wheelbase = wheelbase
-        self.max_steer = max_steer
+    def __init__(self, config: AckermannConfig):
+        super().__init__(config)
+        # 现在通过 self.config.wheelbase 访问，而不是分散的参数
 
     def get_shape(self) -> Tuple[float, float]:
         # 具体的阿克曼小车尺寸
