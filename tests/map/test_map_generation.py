@@ -2,6 +2,7 @@
 import sys
 import os
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon  # [新增] 用于画车身轮廓
 
 # 路径黑魔法
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -14,13 +15,16 @@ from src.types import State
 
 def test_feasible_map_generation():
     # 1. 准备组件
-    # [修正] 扩大地图尺寸以容纳 (90, 90) 的目标点
-    # 1000 grids * 0.1m/grid = 100m x 100m
+    # [优化] 提高分辨率以观察 Footprint 效果
+    # 100m x 100m 地图:
+    # 旧: 200 x 0.5m = 100m (粗糙)
+    # 新: 1000 x 0.1m = 100m (精细，能看清车身锯齿)
     grid_map = GridMap(200, 200, resolution=0.5)
     
     config = AckermannConfig(
         wheelbase=2.5, 
-        max_steer_deg=34.4
+        max_steer_deg=34.4,
+        width=2.0  # 显式确认车宽，便于观察
     )
     vehicle = AckermannVehicle(config)
     
@@ -33,45 +37,56 @@ def test_feasible_map_generation():
     phys_height = grid_map.height * grid_map.resolution
 
     print(f"Map Physical Size: {phys_width:.1f}m x {phys_height:.1f}m")
-    print("生成包含可行路径的地图中...")
+    print(f"Map Resolution: {grid_map.resolution}m")
+    print("生成包含可行路径的地图中 (使用 Footprint 推土机)...")
     
-    # 1. 实例化生成器：配置参数（传入物理单位）
-    # 比如：障碍物密度0.1，膨胀半径0.3米，路点5个
-    obstacle_density = 0.05
+    # 1. 实例化生成器
+    # 提示：由于现在是贴合车身清除，obstacle_density 可以适当调高一点点测试极限，
+    # 或者保持不变观察生成的“窄通道”
+    obstacle_density = 0.1
     generator = MapGenerator(
         obstacle_density=obstacle_density, 
-        inflation_radius_m=0.2, 
+        inflation_radius_m=0.5, # 这是障碍物的膨胀，不是车身的
         num_waypoints=5
     )
     
-    # 2. 执行生成
+    # 2. 执行生成 (Generator 内部会自动处理“胖”车身逻辑)
     generator.generate(grid_map, vehicle, start, goal)
     
     # 3. 可视化
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(12, 12)) #稍微调大画布
     
-    # [关键修改] 使用 extent 参数设置物理坐标范围
-    # 格式: [left, right, bottom, top]
-    # 对应: [0, 物理宽, 0, 物理高]
+    # [关键] 使用 extent 参数设置物理坐标范围
     map_extent = [0, phys_width, 0, phys_height]
 
     # A. 画地图 
-    # extent=map_extent 让 Matplotlib 自动把像素拉伸到物理坐标系
     ax.imshow(grid_map.data, cmap='Greys', origin='lower', extent=map_extent)
     
-    # B. 画起点和终点
-    ax.plot(start.x, start.y, 'go', markersize=10, label='Start')
-    ax.plot(goal.x, goal.y, 'rx', markersize=10, markeredgewidth=2, label='Goal')
+    # B. 画起点和终点 (不仅仅是点，我们把车画出来，看是否贴合)
+    ax.plot(start.x, start.y, 'go', markersize=5, label='Start Center')
+    ax.plot(goal.x, goal.y, 'rx', markersize=5, label='Goal Center')
+
+    # [新增] 画出起点和终点的车身轮廓，验证 Generator 是否清除了足够的空间
+    start_poly = vehicle.get_visualization_polygon(start)
+    goal_poly = vehicle.get_visualization_polygon(goal)
     
-    ax.set_title(f"Feasible Map Generation (Physical Coordinates)\n"
-                 f"Density: {obstacle_density}, Resolution: {grid_map.resolution}m")
+    ax.add_patch(Polygon(start_poly, closed=True, facecolor='green', alpha=0.5, label='Start Body'))
+    ax.add_patch(Polygon(goal_poly, closed=True, facecolor='red', alpha=0.5, label='Goal Body'))
+    
+    ax.set_title(f"Feasible Map Generation (Footprint Mode)\n"
+                 f"Density: {obstacle_density}, Resolution: {grid_map.resolution}m\n"
+                 f"Notice: Path should fit the rectangular body shape")
     
     ax.set_xlabel("X Position [m]")
     ax.set_ylabel("Y Position [m]")
     
-    ax.legend()
-    ax.grid(True, linestyle=':', alpha=0.3) # 加个网格更好看
+    ax.legend(loc='upper left')
+    ax.grid(True, linestyle=':', alpha=0.3)
     
+    # 聚焦显示（可选）：如果你想看细节，可以取消下面注释只看局部
+    # ax.set_xlim(0, 30)
+    # ax.set_ylim(0, 30)
+
     plt.tight_layout()
     plt.show()
 

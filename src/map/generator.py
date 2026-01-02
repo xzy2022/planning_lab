@@ -5,6 +5,8 @@ import random
 from src.map.grid_map import GridMap
 from src.types import State
 from src.vehicles.base import VehicleBase
+from src.collision.footprint import FootprintModel
+import copy
 
 class MapGenerator:
     """
@@ -31,25 +33,39 @@ class MapGenerator:
             np.random.seed(self.seed)
 
     def generate(self, grid_map: GridMap, vehicle: VehicleBase, start: State, goal: State):
-        """
-        主入口：生成一张完整的可行地图
-        """
-        # 1. 随机障碍底图
+        # 1. 随机障碍底图 (保持不变)
         self._generate_random_obstacles(grid_map)
         
-        # 2. 障碍物膨胀 (物理距离 -> 栅格)
-        # 自动计算 grid 数量，向上取整保证至少膨胀 1 格（如果半径>0）
+        # 2. 障碍物膨胀 (保持不变)
         if self.inflation_radius_m > 0:
             r_grids = int(math.ceil(self.inflation_radius_m / grid_map.resolution))
             self._inflate_obstacles(grid_map, r_grids)
-            
-        # 3. 清除起终点
-        # 保证起点终点周围有足够的回旋余地 (例如 3米)
-        self._clear_area_m(grid_map, start.x, start.y, radius_m=3.0)
-        self._clear_area_m(grid_map, goal.x, goal.y, radius_m=3.0)
+
+        # --- [关键修改] 3. 准备“推土机”模型 ---
+        # 我们不直接用传入的 vehicle，而是创建一个“更胖”的版本，作为安全余量
+        plow_vehicle = copy.deepcopy(vehicle)
         
-        # 4. 生成路点并推土
-        self._carve_path(grid_map, vehicle, start, goal)
+        # 策略：简单粗暴地增加物理尺寸
+        # 比如：让推土机的宽度和长度都增加 20% 或者 固定增加 0.5米
+        # 注意：这里需要根据具体的 Config 类型来处理，或者直接修改 vehicle.config.safe_margin
+        # 但修改 geometric 尺寸效果最好
+        if hasattr(plow_vehicle.config, 'width'):
+            plow_vehicle.config.width *= 1.2 
+        if hasattr(plow_vehicle.config, 'length'):
+            plow_vehicle.config.length *= 1.2
+            
+        # 重新触发 post_init 以更新几何参数 (关键!)
+        plow_vehicle.config.__post_init__()
+        
+        # 初始化 Footprint 模型 (计算量很小，只需做一次)
+        footprint_model = FootprintModel(plow_vehicle, grid_map.resolution)
+
+        # 4. 清除起终点 (使用 Footprint 清除)
+        self._clear_with_footprint(grid_map, footprint_model, start)
+        self._clear_with_footprint(grid_map, footprint_model, goal)
+        
+        # 5. 生成路点并推土
+        self._carve_path_with_footprint(grid_map, vehicle, footprint_model, start, goal)
 
     def _generate_random_obstacles(self, grid_map: GridMap):
         width = grid_map.width
@@ -83,7 +99,7 @@ class MapGenerator:
             
         grid_map.data[:] = inflated_grid[:]
 
-    def _carve_path(self, grid_map: GridMap, vehicle: VehicleBase, start: State, goal: State):
+    def _carve_path_with_footprint(self, grid_map: GridMap, vehicle: VehicleBase,footprint_model:FootprintModel, start: State, goal: State):
         """推土机逻辑"""
         # 生成路点
         waypoints = []
@@ -125,20 +141,21 @@ class MapGenerator:
             next_state = vehicle.kinematic_propagate(current_state, (1.0, steer), dt)
             
             # 清除障碍 (物理尺寸)
-            bx, by, b_radius = vehicle.get_bounding_circle(next_state)
-            self._clear_area_m(grid_map, bx, by, radius_m=b_radius * 1.2)
+            self._clear_with_footprint(grid_map, footprint_model, next_state)
             
             current_state = next_state
             step_count += 1
 
-    def _clear_area_m(self, grid_map: GridMap, center_x: float, center_y: float, radius_m: float):
-        """[封装] 统一处理物理距离到栅格的转换"""
-        cx_idx, cy_idx = grid_map.world_to_grid(center_x, center_y)
-        r_grids = int(math.ceil(radius_m / grid_map.resolution))
+    def _clear_with_footprint(self, grid_map: GridMap, model: FootprintModel, state: State):
+        """利用 Numpy 高速清除"""
+        # 获取要清除的所有索引 (N, 2)
+        indices = model.get_occupied_indices(state)
         
-        # 边界检查 + 圆形判断
-        for y in range(cy_idx - r_grids, cy_idx + r_grids + 1):
-            for x in range(cx_idx - r_grids, cx_idx + r_grids + 1):
-                if 0 <= x < grid_map.width and 0 <= y < grid_map.height:
-                    if (x - cx_idx)**2 + (y - cy_idx)**2 <= r_grids**2:
-                        grid_map.data[y, x] = 0
+        # 过滤越界索引
+        valid_mask = (indices[:, 0] >= 0) & (indices[:, 0] < grid_map.width) & \
+                     (indices[:, 1] >= 0) & (indices[:, 1] < grid_map.height)
+        valid_indices = indices[valid_mask]
+        
+        if len(valid_indices) > 0:
+            # [极速操作] 直接赋值 0
+            grid_map.data[valid_indices[:, 1], valid_indices[:, 0]] = 0
