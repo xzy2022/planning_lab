@@ -147,8 +147,40 @@ class AckermannConfig(VehicleConfig):
         # 3. 存入属性
         self.bounding_offset = center_local
         self.bounding_radius = geom_radius
+
+
 @dataclass
 class PointMassConfig(VehicleConfig):
-    """质点模型特有配置"""
-    # 质点可能不需要额外配置，但保留扩展性
-    pass
+    """
+    质点/全向小车模型配置
+    """
+    # --- 1. 几何参数 ---
+    width: float = 1.0           # [m] 车宽 (用于碰撞矩形)
+    length: float = 1.0          # [m] 车长
+    
+    # --- 2. 运动参数 暂无---
+
+    
+    # --- 3. 派生属性 (自动计算) ---
+    bounding_radius: float = field(init=False)      # 外接圆半径
+    bounding_offset: np.ndarray = field(init=False) # 外接圆偏移 (通常为 0,0)
+    outline_coords: np.ndarray = field(init=False)  # 矩形轮廓
+
+    def __post_init__(self):
+        # A. 预计算轮廓 (以中心为原点的矩形)
+        # 顺时针: 右前 -> 右后 -> 左后 -> 左前
+        dx = self.length / 2.0
+        dy = self.width / 2.0
+        
+        self.outline_coords = np.array([
+            [dx, -dy],
+            [-dx, -dy],
+            [-dx, dy],
+            [dx, dy],
+            [dx, -dy] # 闭合
+        ])
+        
+        # B. 预计算外接圆 (AABB 中心即为几何中心)
+        self.bounding_offset = np.array([0.0, 0.0])
+        # 半径为矩形对角线的一半。这里没有考虑安全余量。
+        self.bounding_radius = math.hypot(dx, dy)
