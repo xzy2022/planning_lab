@@ -36,7 +36,7 @@ def test_feasible_map_generation():
     print("生成包含可行路径的地图中...")
     
     MapGenerator.generate_feasible_map(
-        grid_map, vehicle, start, goal, obstacle_density=0.6
+        grid_map, vehicle, start, goal, obstacle_density=0.1
     )
     
     # 3. 可视化
