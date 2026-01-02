@@ -90,6 +90,8 @@ class AckermannConfig(VehicleConfig):
     collision_radius: float = field(init=False)      # 单个小圆的半径
     collision_offsets: np.ndarray = field(init=False)# 小圆圆心相对于后轴中心的距离列表
     outline_coords: np.ndarray = field(init=False)   # 用于绘图的矩形框坐标(4x2)
+    bounding_radius: float = field(init=False)      # 最小外接圆半径 (不含安全余量)
+    bounding_offset: np.ndarray = field(init=False) # 最小外接圆圆心相对于后轴的坐标 [x, y]
 
     def __post_init__(self):
         # A. 角度转弧度
@@ -130,6 +132,21 @@ class AckermannConfig(VehicleConfig):
             [front_x, left_y],
             [front_x, right_y] # 闭合
         ])
+
+        # ---  通用最小外接圆计算 (AABB法) ---
+        # 1. 计算局部坐标系下的 AABB 中心 (对于矩形车身，这就是几何中心)
+        min_xy = np.min(self.outline_coords, axis=0)
+        max_xy = np.max(self.outline_coords, axis=0)
+        center_local = (min_xy + max_xy) / 2.0
+        
+        # 2. 计算覆盖所有顶点的最小半径
+        # 向量化计算所有点到中心的距离
+        dists = np.linalg.norm(self.outline_coords - center_local, axis=1)
+        geom_radius = np.max(dists)
+        
+        # 3. 存入属性
+        self.bounding_offset = center_local
+        self.bounding_radius = geom_radius
 @dataclass
 class PointMassConfig(VehicleConfig):
     """质点模型特有配置"""

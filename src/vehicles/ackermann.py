@@ -12,13 +12,25 @@ class AckermannVehicle(VehicleBase):
         self.config: AckermannConfig = config
         
 
-    @property
-    def clearance_radius(self) -> float:
-        # 直接利用配置里算好的几何信息
-        # 能够覆盖车身最远端（通常是车头或车尾角点）的距离
-        # 这里为了简单，可以用总长的一半作为保守估计，或者计算对角线
-        total_len = self.config.wheelbase + self.config.front_hang + self.config.rear_hang
-        return total_len / 2.0 + 0.5  # +0.5 是安全余量
+    def get_bounding_circle(self, state: State) -> Tuple[float, float, float]:
+        """
+        [精确接口]
+        返回世界坐标系下的最小外接圆 (x, y, radius)。
+        考虑了圆心相对于后轴的偏移。
+        """
+        # 1. 将局部偏移量转换到世界坐标系
+        # 利用基类的 transform_points 或手动旋转
+        # 这里的 offset 是一个点，看作向量旋转
+        c = math.cos(state.theta)
+        s = math.sin(state.theta)
+        
+        ox, oy = self.config.bounding_offset
+        
+        # 旋转 + 平移
+        center_x = ox * c - oy * s + state.x
+        center_y = ox * s + oy * c + state.y
+        
+        return center_x, center_y, self.config.bounding_radius + self.config.safe_margin
 
     def get_collision_circles(self, state: State):
         # 你的多圆实现

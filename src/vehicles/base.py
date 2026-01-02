@@ -27,13 +27,25 @@ class VehicleBase(ABC):
         """核心物理推演，留给子类实现"""
         pass
 
-    @property
+# src/vehicles/base.py
+
     @abstractmethod
-    def clearance_radius(self) -> float:
+    def get_bounding_circle(self, state: State) -> Tuple[float, float, float]:
         """
-        [粗检测接口]
-        返回一个能完全包围车辆的外接圆半径 (bounding circle radius)。
-        用途：MapGenerator 清除障碍、四叉树粗略剔除、KDTree 查询等。
+        [粗检测接口] 获取能够完全包围车辆的最小外接圆 (Bounding Circle)。
+        
+        Args:
+            state: 车辆当前状态 (x, y, theta)
+            
+        Returns:
+            (center_x, center_y, radius): 
+            - center_x, center_y: 外接圆圆心的世界坐标 (注意：通常不等于车辆原点/后轴中心)
+            - radius: 外接圆半径 (已包含安全余量)
+            
+        用途:
+            1. MapGenerator: 清除车辆所在位置的障碍物。
+            2. CollisionChecker: Broad-phase (粗筛) 碰撞检测，快速剔除绝对安全的车辆。
+            3. QuadTree/SpatialHash: 空间索引查询。
         """
         pass
 
