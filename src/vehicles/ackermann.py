@@ -1,4 +1,3 @@
-# [实现] 具体类 B
 # src/vehicles/ackermann.py
 import math
 from .base import VehicleBase, State  # 导入接口
@@ -16,7 +15,9 @@ class AckermannVehicle(VehicleBase):
         """
         [精确接口]
         返回世界坐标系下的最小外接圆 (x, y, radius)。
-        考虑了圆心相对于后轴的偏移。
+        return:
+        center_x, center_y: 圆心坐标相对于小车原点(后轴中心)的偏移
+        radius: 圆的半径(考虑安全裕量)
         """
         # 1. 将局部偏移量转换到世界坐标系
         # 利用基类的 transform_points 或手动旋转
