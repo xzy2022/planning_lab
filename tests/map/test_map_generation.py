@@ -35,9 +35,17 @@ def test_feasible_map_generation():
     print(f"Map Physical Size: {phys_width:.1f}m x {phys_height:.1f}m")
     print("生成包含可行路径的地图中...")
     
-    MapGenerator.generate_feasible_map(
-        grid_map, vehicle, start, goal, obstacle_density=0.1
+    # 1. 实例化生成器：配置参数（传入物理单位）
+    # 比如：障碍物密度0.1，膨胀半径0.3米，路点5个
+    obstacle_density = 0.05
+    generator = MapGenerator(
+        obstacle_density=obstacle_density, 
+        inflation_radius_m=0.2, 
+        num_waypoints=5
     )
+    
+    # 2. 执行生成
+    generator.generate(grid_map, vehicle, start, goal)
     
     # 3. 可视化
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -56,7 +64,7 @@ def test_feasible_map_generation():
     ax.plot(goal.x, goal.y, 'rx', markersize=10, markeredgewidth=2, label='Goal')
     
     ax.set_title(f"Feasible Map Generation (Physical Coordinates)\n"
-                 f"Density: 0.6, Resolution: {grid_map.resolution}m")
+                 f"Density: {obstacle_density}, Resolution: {grid_map.resolution}m")
     
     ax.set_xlabel("X Position [m]")
     ax.set_ylabel("Y Position [m]")
