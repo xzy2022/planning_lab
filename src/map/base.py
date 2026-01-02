@@ -1,8 +1,7 @@
-# MapBase 接口
-
 # src/map/base.py
 from abc import ABC, abstractmethod
 import numpy as np
+from typing import Tuple, Optional
 
 class MapBase(ABC):
     """
@@ -39,4 +38,30 @@ class MapBase(ABC):
     @abstractmethod
     def is_obstacle(self, x_idx: int, y_idx: int) -> bool:
         """检查特定网格索引是否为障碍物"""
+        pass
+
+    @abstractmethod
+    def is_obstacle_at_point(self, x: float, y: float) -> bool:
+        """检查特定物理位置是否为障碍物"""
+        pass
+
+    @abstractmethod
+    def world_to_grid(self, x: float, y: float) -> Tuple[int, int]:
+        """
+        [关键接口] 将物理坐标(m)转换为栅格索引
+        返回: (x_index, y_index)
+        """
+        pass
+
+    @abstractmethod
+    def grid_to_world(self, x_idx: int, y_idx: int) -> Tuple[float, float]:
+        """
+        [关键接口] 将栅格索引转换为物理坐标(m)
+        通常返回该格子的中心点坐标
+        """
+        pass
+    
+    @abstractmethod
+    def is_inside(self, x: float, y: float) -> bool:
+        """检查物理坐标是否在地图范围内"""
         pass
