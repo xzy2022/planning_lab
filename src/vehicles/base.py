@@ -1,4 +1,3 @@
-# [接口] 只有抽象基类 (Interface/ABC)
 # src/vehicles/base.py
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -6,13 +5,9 @@ from typing import Tuple, List
 from .config import VehicleConfig
 import math
 import numpy as np
+from src.types import State
 
-# 定义通用的数据结构，方便作为接口的输入输出
-@dataclass
-class State:
-    x: float             # [m]
-    y: float             # [m]
-    theta_rad: float         # [rad]
+
 
 class VehicleBase(ABC):
     """
