@@ -51,7 +51,9 @@ def test_feasible_map_generation():
     )
     
     # 2. 执行生成 (Generator 内部会自动处理“胖”车身逻辑)
-    generator.generate(grid_map, vehicle, start, goal)
+    # extra_paths=1: 至少会有两条路通往终点
+    # dead_ends=5: 生成5条乱七八糟的干扰路径
+    generator.generate(grid_map, vehicle, start, goal, extra_paths=1, dead_ends=5)
     
     # 3. 可视化
     fig, ax = plt.subplots(figsize=(12, 12)) #稍微调大画布
