@@ -10,9 +10,9 @@ import numpy as np
 # 定义通用的数据结构，方便作为接口的输入输出
 @dataclass
 class State:
-    x: float
-    y: float
-    theta: float
+    x: float             # [m]
+    y: float             # [m]
+    theta_rad: float         # [rad]
 
 class VehicleBase(ABC):
     """
@@ -76,8 +76,8 @@ class VehicleBase(ABC):
         :param local_points: (N, 2) 数组
         :param state: 车辆状态 (x, y, theta)
         """
-        c = math.cos(state.theta)
-        s = math.sin(state.theta)
+        c = math.cos(state.theta_rad)
+        s = math.sin(state.theta_rad)
         
         # 预分配内存，比临时变量拷贝更快
         world_points = np.empty_like(local_points)

@@ -21,8 +21,8 @@ class AckermannVehicle(VehicleBase):
         # 1. 将局部偏移量转换到世界坐标系
         # 利用基类的 transform_points 或手动旋转
         # 这里的 offset 是一个点，看作向量旋转
-        c = math.cos(state.theta)
-        s = math.sin(state.theta)
+        c = math.cos(state.theta_rad)
+        s = math.sin(state.theta_rad)
         
         ox, oy = self.config.bounding_offset
         
@@ -34,8 +34,8 @@ class AckermannVehicle(VehicleBase):
 
     def get_collision_circles(self, state: State):
         # 你的多圆实现
-        cos_theta = math.cos(state.theta)
-        sin_theta = math.sin(state.theta)
+        cos_theta = math.cos(state.theta_rad)
+        sin_theta = math.sin(state.theta_rad)
         cx_list = state.x + self.config.collision_offsets * cos_theta
         cy_list = state.y + self.config.collision_offsets * sin_theta
         return cx_list, cy_list, self.config.collision_radius
@@ -61,7 +61,7 @@ class AckermannVehicle(VehicleBase):
         
         # 计算新状态
         tan_steer = math.tan(steering)
-        new_theta = start_state.theta + (v / wb) * tan_steer * dt
+        new_theta = start_state.theta_rad + (v / wb) * tan_steer * dt
         new_theta = self.normalize_angle(new_theta)
         new_x = start_state.x + v * math.cos(new_theta) * dt
         new_y = start_state.y + v * math.sin(new_theta) * dt

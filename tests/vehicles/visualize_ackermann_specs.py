@@ -51,7 +51,7 @@ def visualize_specs():
     vehicle = AckermannVehicle(config)
 
     # --- 2. 设定状态 (水平放置，方便标注) ---
-    state = State(x=0.0, y=0.0, theta=0.0)
+    state = State(x=0.0, y=0.0, theta_rad=0.0)
 
     # --- 3. 获取几何数据 ---
     vis_poly = vehicle.get_visualization_polygon(state)

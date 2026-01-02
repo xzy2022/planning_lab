@@ -23,7 +23,7 @@ def visualize_vehicle_layers():
 
     # 2. 设定测试状态
     # 车头朝向 30 度
-    state = State(x=2.0, y=2.0, theta=math.radians(30))
+    state = State(x=2.0, y=2.0, theta_rad=math.radians(30))
 
     # 3. 获取各类几何数据
     
@@ -73,7 +73,7 @@ def visualize_vehicle_layers():
     
     # 画出车头朝向箭头
     arrow_len = 1.0
-    ax.arrow(state.x, state.y, arrow_len*math.cos(state.theta), arrow_len*math.sin(state.theta), 
+    ax.arrow(state.x, state.y, arrow_len*math.cos(state.theta_rad), arrow_len*math.sin(state.theta_rad), 
              head_width=0.2, head_length=0.3, fc='k', ec='k')
 
     # 5. 设置图表属性
@@ -81,7 +81,7 @@ def visualize_vehicle_layers():
     ax.grid(True, linestyle=':', alpha=0.6)
     ax.set_xlabel('X [m]')
     ax.set_ylabel('Y [m]')
-    ax.set_title(f'Ackermann Vehicle Geometry Check\n(Theta = {math.degrees(state.theta):.1f} deg)')
+    ax.set_title(f'Ackermann Vehicle Geometry Check\n(Theta = {math.degrees(state.theta_rad):.1f} deg)')
     
     # 把图例放外面一点，防止遮挡
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))

@@ -56,7 +56,7 @@ def visualize_specs():
 
     # --- 2. 设定状态 ---
     # 放置在原点，无旋转，方便观察对齐情况
-    state = State(x=0.0, y=0.0, theta=30.0)
+    state = State(x=0.0, y=0.0, theta_rad=1.0)
 
     # --- 3. 获取几何数据 ---
     vis_poly = vehicle.get_visualization_polygon(state)

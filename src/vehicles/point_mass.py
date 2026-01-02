@@ -61,7 +61,7 @@ class PointMassVehicle(VehicleBase):
         
         # 2. 角度处理
         # PointMass 不旋转，保持原状；或者根据需要设为 0
-        new_theta = start_state.theta 
+        new_theta = start_state.theta_rad 
         
         return State(new_x, new_y, new_theta)
 
