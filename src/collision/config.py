@@ -12,6 +12,9 @@ class CollisionMethod(Enum):
     # 多边形 SAT 检测 (最精确，计算量大，适合事后验证或高精度场景)
     POLYGON = 2
 
+    # 离散栅格检测 
+    RASTER = 3
+
 @dataclass
 class CollisionConfig:
     method: CollisionMethod = CollisionMethod.MULTI_CIRCLE

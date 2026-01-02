@@ -6,13 +6,21 @@ from src.vehicles.base import VehicleBase, State
 from src.map.grid_map import GridMap
 from .config import CollisionConfig, CollisionMethod
 from .geometry import check_sat_polygon_collision, get_grid_aabb_polygon
+from .footprint import FootprintModel
 
 class CollisionChecker:
-    def __init__(self, config: CollisionConfig = None):
+    def __init__(self, config: CollisionConfig = None, vehicle=None, grid_map=None):
         if config is None:
             self.config = CollisionConfig()
         else:
             self.config = config
+
+            # [优化] 如果配置了 RASTER 模式，必须预先初始化 FootprintModel
+            if config.method == CollisionMethod.RASTER:
+                if vehicle is None or grid_map is None:
+                    raise ValueError("Raster mode requires vehicle and map for initialization")
+                # 这一步计算量大，只做一次
+                self.footprint_model = FootprintModel(vehicle, grid_map.resolution)
 
     def check(self, vehicle: VehicleBase, state: State, grid_map: GridMap) -> bool:
         """
@@ -20,28 +28,53 @@ class CollisionChecker:
         :return: True 表示碰撞 (不安全), False 表示安全
         """
         
-        # --- Phase 1: Broad Phase (粗筛) ---
+        # --- Phase 1: Broad Phase (粗筛 - 基础几何) ---
         # 利用 get_bounding_circle (接口 3)
         # 注意：这里的 radius 已经包含了 safe_margin
         bx, by, b_radius = vehicle.get_bounding_circle(state)
         
-        # 1.1 地图边界检查
+        # 1.1 地图边界检查 (保留：这是 O(1) 的快速检查，且处理越界情况比 Raster 更稳健)
         map_w_m = grid_map.width * grid_map.resolution
         map_h_m = grid_map.height * grid_map.resolution
         if (bx - b_radius < 0 or bx + b_radius > map_w_m or
             by - b_radius < 0 or by + b_radius > map_h_m):
             return True # 出界视为碰撞
 
-        # 1.2 外接圆障碍物粗查
-        # 如果外接圆范围内全是空地，则绝对安全，无需进行 Narrow Phase
+        # --- Optimization: Raster Mode Fast Path (针对 Raster 的极速通道) ---
+        # [优化] 跳过 Python 循环实现的 _check_circle_in_grid，直接进入 Numpy 查表
+        if self.config.method == CollisionMethod.RASTER:
+            # 1. 极速查表拿到所有要检查的 (x, y) 索引
+            # 注意：需确保 checker 初始化时已构建 self.footprint_model
+            indices = self.footprint_model.get_occupied_indices(state)
+            
+            # 2. 过滤掉越界的索引 (这步可以用 numpy 向量化处理)
+            valid_mask = (indices[:, 0] >= 0) & (indices[:, 0] < grid_map.width) & \
+                         (indices[:, 1] >= 0) & (indices[:, 1] < grid_map.height)
+            valid_indices = indices[valid_mask]
+            
+            # 如果所有点都在地图外(且没触发1.1)，说明可能在角落缝隙，按安全处理
+            # 但通常 1.1 会拦截大部分越界情况
+            if len(valid_indices) == 0:
+                return False
+
+            # 3. 直接从地图取值 (核心加速点)
+            # data[y, x] 注意 numpy 索引顺序通常是 (row, col) 即 (y, x)
+            occupied_values = grid_map.data[valid_indices[:, 1], valid_indices[:, 0]]
+            
+            # 4. 如果有任何一个格子是 1，则碰撞
+            if np.any(occupied_values == 1):
+                return True
+            return False
+
+        # --- Phase 1.2: Broad Phase Obstacle Check (常规粗筛) ---
+        # 对于非 Raster 方法，这个 Python 循环比后续的精细检测(如 SAT)要快，所以保留
         if not self._check_circle_in_grid(bx, by, b_radius, grid_map):
             return False 
 
-        # --- Phase 2: Narrow Phase (精筛) ---
-        # 如果粗筛发现可能碰撞，则根据配置启用精细检测
+        # --- Phase 2: Narrow Phase (精细检测 - 其他方法) ---
         
         if self.config.method == CollisionMethod.CIRCLE_ONLY:
-            # 配置为仅用圆检测，那么粗筛结果就是最终结果
+            # 配置为仅用圆检测，且通过了1.2的筛选(说明撞了)，则返回 True
             return True 
             
         elif self.config.method == CollisionMethod.MULTI_CIRCLE:
@@ -50,7 +83,6 @@ class CollisionChecker:
             
             # 遍历所有小圆
             for cx, cy in zip(cx_list, cy_list):
-                # 只要有一个小圆碰到障碍，就视为碰撞
                 if self._check_circle_in_grid(cx, cy, radius, grid_map):
                     return True
             return False
