@@ -1,30 +1,34 @@
 # src/planning/planners/a_star.py
 import heapq
-from typing import List, Tuple, Optional
+import math
+from typing import List, Tuple, Dict, Optional
 
-# 导入之前定义的接口
-from src.types import State, Node
+from src.types import State
 from src.planning.planners.base import PlannerBase
 from src.vehicles.base import VehicleBase
+from src.map.grid_map import GridMap
 from src.planning.heuristics.base import Heuristic
 from src.planning.costs.base import CostFunction
 from src.visualization.debugger import IDebugger, NoOpDebugger
-from src.common.collision import CollisionChecker
+from src.collision import CollisionChecker
 
 class AStarPlanner(PlannerBase):
     """
-    工业级 A* 规划器实现
-    特点：
-    1. 策略模式：通过构造函数注入 Heuristic 和 CostFunction，逻辑完全解耦。
-    2. 观测模式：通过 plan 方法注入 Debugger，实现 0 开销的条件记录。
+    针对 PointMassVehicle (全向移动/质点模型) 的 Grid A* 实现。
+    
+    工作流程：
+    1. 将连续的 Start/Goal 映射到栅格索引 (Grid Index)。
+    2. 使用 8-连通 (8-connected) 方式扩展邻居。
+    3. 利用 CollisionChecker 检查离散节点的物理可行性。
+    4. 利用 CostFunctions 计算代价值。
     """
 
     def __init__(self, 
                  vehicle_model: VehicleBase,
-                 collision_checker: CollisionChecker, # 碰撞检测器通常也是注入的
-                 heuristic: Heuristic,                 # [策略 1] 启发式
-                 cost_functions: List[CostFunction],   # [策略 2] 代价函数列表
-                 weights: List[float]):                # [策略 3] 对应的权重
+                 collision_checker: CollisionChecker,
+                 heuristic: Heuristic,
+                 cost_functions: List[CostFunction],
+                 weights: List[float]):
         
         self.vehicle = vehicle_model
         self.collision_checker = collision_checker
@@ -32,87 +36,122 @@ class AStarPlanner(PlannerBase):
         self.cost_fns = cost_functions
         self.weights = weights
         
-        # 简单的参数校验
-        assert len(self.cost_fns) == len(self.weights), "代价函数数量必须与权重数量一致"
+        assert len(self.cost_fns) == len(self.weights), "Cost functions and weights mismatch"
 
     def plan(self, 
              start: State, 
              goal: State, 
-             grid_map,  # Map 具体类型取决于你的 map 模块定义
+             grid_map: GridMap, 
              debugger: IDebugger = None) -> List[State]:
         
-        # --- [切面 1] Debugger 初始化 ---
-        # 如果调用者没传 debugger (生产环境)，使用哑巴对象，避免后续大量的 if 判断
+        # 1. 初始化调试器
         if debugger is None:
             debugger = NoOpDebugger()
+        debugger.set_cost_map(grid_map)
 
-        # 记录地图背景数据 (用于可视化底图)
-        debugger.set_cost_map(grid_map) 
+        # 2. 坐标离散化 (State -> Grid Index)
+        # 质点模型在 GridMap 上规划，本质是寻找格子的序列
+        start_idx = grid_map.world_to_grid(start.x, start.y)
+        goal_idx = grid_map.world_to_grid(goal.x, goal.y)
 
-        # --- [算法核心] 初始化容器 ---
-        # 优先级队列，存储 (f_score, state_id, state)
-        # Python 的 heapq 是最小堆
-        open_set = [] 
-        heapq.heappush(open_set, (0.0, start))
+        # 边界检查：如果起点或终点不在地图内，直接返回
+        if not (self._is_valid_index(start_idx, grid_map) and self._is_valid_index(goal_idx, grid_map)):
+            print("[A*] Start or Goal is out of map bounds.")
+            return []
+
+        # 3. 初始化核心容器
+        # OpenSet: 存储 (f_score, x_idx, y_idx)
+        # 使用 Tuple 作为 Item，Python 的 heapq 会自动按第一个元素 (f_score) 排序
+        open_set = []
+        heapq.heappush(open_set, (0.0, start_idx))
         
-        # 记录已访问状态及其 "G值" (从起点到当前的实际代价)
-        g_scores = {start: 0.0}
+        # CameFrom: 记录路径回溯链 {child_idx: parent_idx}
+        came_from: Dict[Tuple[int, int], Tuple[int, int]] = {start_idx: None}
         
-        # 记录父节点用于回溯路径
-        came_from = {start: None}
+        # G_Score: 记录从起点到当前点的实际代价 {index: g_val}
+        g_scores: Dict[Tuple[int, int], float] = {start_idx: 0.0}
 
-        # --- [算法核心] 主循环 ---
+        # 定义 PointMass 的 8 个运动方向 (dx, dy, move_cost_multiplier)
+        # 直行代价 1.0，斜行代价 1.414 (sqrt(2))
+        motions = [
+            (1, 0, 1.0), (0, 1, 1.0), (-1, 0, 1.0), (0, -1, 1.0),
+            (1, 1, 1.414), (1, -1, 1.414), (-1, 1, 1.414), (-1, -1, 1.414)
+        ]
+
+        # 4. 主循环
         while open_set:
-            # 1. 弹出 f_score 最小的节点
-            current_f, current_state = heapq.heappop(open_set)
-
-            # --- [切面 2] 记录当前扩展节点 ---
-            # 这会在图上画出一个“正在探索”的红点
+            current_f, current_idx = heapq.heappop(open_set)
+            
+            # --- [Vis] 记录当前扩展 ---
+            # 为了可视化和计算 Cost，我们需要把 Index 转回 State
+            current_state = self._get_state_from_index(current_idx, grid_map, start.theta_rad)
             debugger.record_current_expansion(current_state)
 
-            # 2. 判断是否到达终点 (使用欧氏距离模糊判定)
-            if self.h_fn.estimate(current_state, goal) < 1e-2: # 或 vehicle.is_reached(current, goal)
-                return self._reconstruct_path(came_from, current_state)
+            # A. 终止条件
+            if current_idx == goal_idx:
+                return self._reconstruct_path(came_from, current_idx, grid_map, start.theta_rad)
 
-            # 3. 扩展邻居节点 (依赖 Vehicle 模型)
-            # get_motion_primitives 返回的是一组可能的下一状态 (x, y, theta)
-            neighbors = self.vehicle.get_motion_primitives(current_state)
+            # B. 扩展邻居
+            for dx, dy, cost_mult in motions:
+                neighbor_idx = (current_idx[0] + dx, current_idx[1] + dy)
 
-            for next_state in neighbors:
-                # 4. 碰撞检测 (前置剪枝)
-                if self.collision_checker.check(self.vehicle, next_state, grid_map):
+                # B.1 越界检查
+                if not self._is_valid_index(neighbor_idx, grid_map):
                     continue
 
-                # 5. [核心逻辑] 计算 Step Cost (G值增量)
-                # 遍历所有注入的 cost functions 并加权求和
-                step_cost = 0.0
+                # B.2 碰撞检测
+                # 必须将 Grid Index 转回 物理 State 才能放入 CollisionChecker
+                neighbor_state = self._get_state_from_index(neighbor_idx, grid_map, start.theta_rad)
+                
+                # 如果该位置有碰撞，跳过
+                if self.collision_checker.check(self.vehicle, neighbor_state, grid_map):
+                    continue
+
+                # B.3 计算 G 值
+                # Base Cost: 几何移动距离 (格子数 * 分辨率 * 权重)
+                geo_dist = cost_mult * grid_map.resolution
+                
+                # Extra Cost: 注入的代价函数 (如避障、平滑等)
+                # 注意：这里计算的是 "Edge Cost" (从 current 到 neighbor)
+                extra_cost = 0.0
                 for fn, w in zip(self.cost_fns, self.weights):
-                    step_cost += w * fn.calculate(current_state, next_state)
+                    extra_cost += w * fn.calculate(current_state, neighbor_state)
 
-                # 暂定的新 G 值
-                tentative_g = g_scores[current_state] + step_cost
+                new_g = g_scores[current_idx] + geo_dist + extra_cost
 
-                # 6. 状态更新与入队
-                if next_state not in g_scores or tentative_g < g_scores[next_state]:
-                    g_scores[next_state] = tentative_g
-                    came_from[next_state] = current_state
+                # B.4 更新 OpenSet
+                if neighbor_idx not in g_scores or new_g < g_scores[neighbor_idx]:
+                    g_scores[neighbor_idx] = new_g
                     
-                    # [核心逻辑] 计算 H 值 (依赖注入的 Heuristic)
-                    h_val = self.h_fn.estimate(next_state, goal)
-                    f_val = tentative_g + h_val
+                    # 计算 H 值 (启发式)
+                    h_val = self.h_fn.estimate(neighbor_state, goal)
+                    f_val = new_g + h_val
                     
-                    heapq.heappush(open_set, (f_val, next_state))
+                    heapq.heappush(open_set, (f_val, neighbor_idx))
+                    came_from[neighbor_idx] = current_idx
+                    
+                    # --- [Vis] 记录 OpenSet ---
+                    debugger.record_open_set_node(neighbor_state, f_val, h_val)
 
-                    # --- [切面 3] 记录 OpenSet 变化 ---
-                    # 这会在图上把此节点标记为绿色 (待探索)
-                    debugger.record_open_set_node(next_state, f_val, h_val)
+        print("[A*] Open set is empty, no path found.")
+        return []
 
-        return [] # 未找到路径
+    def _is_valid_index(self, idx: Tuple[int, int], grid_map: GridMap) -> bool:
+        """检查索引是否在地图范围内"""
+        x, y = idx
+        return 0 <= x < grid_map.width and 0 <= y < grid_map.height
 
-    def _reconstruct_path(self, came_from, current):
-        """标准的回溯路径函数"""
-        path = [current]
-        while current in came_from and came_from[current] is not None:
-            current = came_from[current]
-            path.append(current)
+    def _get_state_from_index(self, idx: Tuple[int, int], grid_map: GridMap, theta: float) -> State:
+        """辅助：将 (ix, iy) 转回 State 对象"""
+        wx, wy = grid_map.grid_to_world(idx[0], idx[1])
+        # PointMass 不旋转，保持默认 theta 或 0
+        return State(wx, wy, theta)
+
+    def _reconstruct_path(self, came_from, current_idx, grid_map, default_theta):
+        """从索引回溯并转换为 State 列表"""
+        path = []
+        while current_idx is not None:
+            state = self._get_state_from_index(current_idx, grid_map, default_theta)
+            path.append(state)
+            current_idx = came_from.get(current_idx)
         return path[::-1]
