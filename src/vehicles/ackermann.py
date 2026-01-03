@@ -102,7 +102,7 @@ class AckermannVehicle(VehicleBase):
         
         # 速度：默认使用配置中的最大速度，或者设为定值 1.0 m/s
         # 假设 config 中有 max_v，如果没有建议在 Config 里加上，或暂时硬编码
-        v = getattr(self.config, 'max_v', 2.0) 
+        v = getattr(self.config, 'max_velocity', 2.0) 
 
         # 4. 离散化积分生成轨迹
         dt = 0.1  # 积分时间步长 (秒)

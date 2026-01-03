@@ -84,6 +84,7 @@ class AckermannConfig(VehicleConfig):
     
     # --- 2. 运动学限制 ---
     max_steer_deg: float = 35.0  # [deg] 最大转向角
+    max_velocity: float = 2.0    # [m/s] 最大速度
     
     # --- 3. 派生属性 (自动计算，外部只读) ---
     max_steer: float = field(init=False)
