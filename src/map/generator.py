@@ -33,8 +33,8 @@ class MapGenerator:
             np.random.seed(self.seed)
 
     def generate(self, grid_map: GridMap, vehicle: VehicleBase, start: State, goal: State, 
-                 extra_paths: int = 1,  # [新增] 额外生成几条通往终点的路
-                 dead_ends: int = 3):   # [新增] 生成几条死胡同/干扰路
+                 extra_paths: int = 1,  # 额外生成几条通往终点的路
+                 dead_ends: int = 3):   # 生成几条死胡同/干扰路
         
         # 1. 随机障碍底图
         self._generate_random_obstacles(grid_map)
@@ -56,10 +56,16 @@ class MapGenerator:
         footprint_model = FootprintModel(plow_vehicle, grid_map.resolution)
 
         # 4. 清除关键点 (起点和终点)
-        self._clear_with_footprint(grid_map, footprint_model, start)
-        self._clear_with_footprint(grid_map, footprint_model, goal)
+        safe_radius = 2.0 # 默认值
+        if hasattr(vehicle.config, 'length') and hasattr(vehicle.config, 'width'):
+            safe_radius = max(vehicle.config.length, vehicle.config.width)
+            
+        self._clear_rectangular_area(grid_map, start, safe_radius)
+        self._clear_rectangular_area(grid_map, goal, safe_radius)
+        # self._clear_with_footprint(grid_map, footprint_model, start)
+        # self._clear_with_footprint(grid_map, footprint_model, goal)
         
-        # --- [核心逻辑优化] ---
+        # --- [核心清除逻辑] ---
         
         # 5.1 生成主路径 (Main Path)
         print("Carving Main Path...")
@@ -187,3 +193,24 @@ class MapGenerator:
         valid_indices = indices[valid_mask]
         if len(valid_indices) > 0:
             grid_map.data[valid_indices[:, 1], valid_indices[:, 0]] = 0
+
+    def _clear_rectangular_area(self, grid_map: GridMap, state: State, half_side_m: float):
+        """
+        清除以 state 为中心，half_side_m 为半边长的矩形(正方形)区域内的障碍物
+        (比圆形清除更快，因为直接使用数组切片)
+        """
+        # 计算中心和半边长的栅格数
+        cx_idx = int(state.x / grid_map.resolution)
+        cy_idx = int(state.y / grid_map.resolution)
+        r_grids = int(math.ceil(half_side_m / grid_map.resolution))
+        
+        # 计算边界框 (Bounding Box)，防止越界
+        # 这一步确定的就是一个矩形区域
+        y_min = max(0, cy_idx - r_grids)
+        y_max = min(grid_map.height, cy_idx + r_grids + 1)
+        x_min = max(0, cx_idx - r_grids)
+        x_max = min(grid_map.width, cx_idx + r_grids + 1)
+        
+        # 直接清除矩形区域 (切片操作)
+        # 不需要计算 mask，直接将该范围内的值设为 0
+        grid_map.data[y_min:y_max, x_min:x_max] = 0
