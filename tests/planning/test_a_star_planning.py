@@ -15,19 +15,14 @@ from src.vehicles.point_mass import PointMassVehicle, PointMassConfig
 from src.types import State
 from src.collision.checker import CollisionChecker, CollisionConfig, CollisionMethod
 from src.planning.planners.a_star import AStarPlanner
-from src.planning.heuristics.euclidean import EuclideanHeuristic
 from src.visualization.debugger import PlanningDebugger
 from src.planning.costs.base import CostFunction
 from src.vehicles.ackermann import AckermannVehicle
 from src.vehicles.config import AckermannConfig
+from src.planning.costs import DistanceCost, ClearanceCost
+from src.planning.heuristics import EuclideanHeuristic, OctileHeuristic
 
-# --- 临时 Cost (如果 import 失败) ---
-try:
-    from src.planning.costs.distance_cost import DistanceCost
-except ImportError:
-    class DistanceCost(CostFunction):
-        def calculate(self, current: State, next_node: State) -> float:
-            return math.hypot(next_node.x - current.x, next_node.y - current.y)
+
 
 def test_a_star_planning():
     print("=== 开始 A* 规划测试 (动画版) ===")
@@ -62,15 +57,17 @@ def test_a_star_planning():
     collision_checker = CollisionChecker(col_config, vehicle, grid_map)
 
     # 5. 规划器
-    heuristic = EuclideanHeuristic()
-    cost_fn = DistanceCost()
+    euclidean_heuristic = EuclideanHeuristic()
+    octile_heuristic = OctileHeuristic()
+    dist_cost = DistanceCost()
+    clearance_cost = ClearanceCost(grid_map, risk_dist=1.0, weight_factor=5.0)
     
     planner = AStarPlanner(
         vehicle_model=vehicle,
         collision_checker=collision_checker,
-        heuristic=heuristic,
-        cost_functions=[cost_fn],
-        weights=[1.0]
+        heuristic=octile_heuristic,
+    cost_functions=[dist_cost, clearance_cost], # 组合使用
+        weights=[1.0, 1.0]
     )
 
     debugger = PlanningDebugger()
