@@ -20,6 +20,10 @@ from src.planning.heuristics import OctileHeuristic
 from src.planning.costs import DistanceCost
 from src.visualization.debugger import PlanningDebugger
 
+# --- 配置日志目录 ---
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
 def calculate_path_length(path):
     """计算路径的累积欧氏距离"""
     if not path or len(path) < 2:
@@ -30,6 +34,49 @@ def calculate_path_length(path):
         dy = path[i+1].y - path[i].y
         length += math.hypot(dx, dy)
     return length
+
+def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, trial_idx):
+    """
+    当规划失败时，保存当前的地图和探索状态截图
+    """
+    # 创建图形，不显示在屏幕上 (off-screen)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # 1. 绘制地图背景
+    ax.imshow(grid_map.data, cmap='Greys', origin='lower', 
+              extent=[0, grid_map.width * grid_map.resolution, 
+                      0, grid_map.height * grid_map.resolution],
+              alpha=0.5)
+    
+    # 2. 绘制起终点
+    ax.plot(start.x, start.y, 'go', markersize=10, label='Start')
+    ax.plot(goal.x, goal.y, 'rx', markersize=10, label='Goal')
+    
+    # 3. 绘制已探索节点 (红色散点)
+    if debugger.expanded_nodes:
+        # [修正点] debugger.expanded_nodes 已经是 [(x, y), ...] 的元组列表
+        # 直接转换为 numpy array 即可，无需再遍历取 .x .y
+        nodes = np.array(debugger.expanded_nodes)
+        
+        # 确保 nodes 不是空的且形状正确 (N, 2)
+        if nodes.ndim == 2 and nodes.shape[0] > 0:
+            ax.scatter(nodes[:, 0], nodes[:, 1], c='red', s=2, alpha=0.6, label='Expanded Nodes')
+    
+    # 设置标题和标签
+    ax.set_title(f"FAILURE LOG: {algo_name} | Density: {density} | Trial: {trial_idx}")
+    ax.set_xlabel("X [m]")
+    ax.set_ylabel("Y [m]")
+    ax.legend(loc='upper left')
+    ax.grid(True, linestyle=':', alpha=0.3)
+    ax.set_aspect('equal')
+    
+    # 4. 保存文件
+    filename = f"fail_{algo_name}_d{density}_t{trial_idx}.png"
+    filepath = os.path.join(LOG_DIR, filename)
+    plt.savefig(filepath)
+    plt.close(fig) # 关闭图形释放内存
+    
+    print(f"  [LOG] {algo_name} 规划失败截图已保存: {filepath}")
 
 def run_experiment():
     # --- 1. 实验参数设置 ---
@@ -90,6 +137,9 @@ def run_experiment():
                 stats['A*']['time'].append((t1 - t0) * 1000)
                 stats['A*']['nodes'].append(len(debugger_astar.expanded_nodes))
                 stats['A*']['length'].append(calculate_path_length(path_astar))
+            else:
+                # [新增] 失败记录逻辑
+                save_failure_snapshot(grid_map, start_state, goal_state, debugger_astar, "AStar", density, i)
 
             # --- C. 运行 RRT ---
             # Step size 设为 2.0m, Max Iter 设为 5000
@@ -105,6 +155,9 @@ def run_experiment():
                 stats['RRT']['time'].append((t1 - t0) * 1000)
                 stats['RRT']['nodes'].append(len(debugger_rrt.expanded_nodes))
                 stats['RRT']['length'].append(calculate_path_length(path_rrt))
+            else:
+                # [新增] 失败记录逻辑
+                save_failure_snapshot(grid_map, start_state, goal_state, debugger_rrt, "RRT", density, i)
 
         # --- 3. 汇总当前 Density 的数据 ---
         for algo in ['A*', 'RRT']:
@@ -166,7 +219,12 @@ def plot_comparisons(df):
     plt.show()
 
 if __name__ == "__main__":
-    print("=== 开始 PointMass 路径规划对比实验 (A* vs RRT) ===")
+    print(f"=== 开始 PointMass 路径规划对比实验 (A* vs RRT) ===")
+    print(f"=== 失败日志将保存至: {LOG_DIR} ===")
+    
+    # 为了避免并行绘图出错，设置 matplotlib 后端为 Agg (如果是在无头服务器上跑)
+    # plt.switch_backend('Agg') 
+    
     df_results = run_experiment()
     print("\n实验结束，正在绘图...")
     plot_comparisons(df_results)

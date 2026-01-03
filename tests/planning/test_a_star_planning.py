@@ -49,7 +49,7 @@ def test_a_star_planning():
     
     generator.generate(grid_map, vehicle, start_state, goal_state, extra_paths=1, dead_ends=5)
     # 4. 碰撞检测
-    col_config = CollisionConfig(method=CollisionMethod.CIRCLE_ONLY)
+    col_config = CollisionConfig(method=CollisionMethod.RASTER)
     collision_checker = CollisionChecker(col_config, vehicle, grid_map)
 
     # 5. 规划器
