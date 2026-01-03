@@ -14,9 +14,9 @@ from src.visualization.debugger import IDebugger, NoOpDebugger
 class RRTNode:
     """RRT 树的节点内部类"""
     def __init__(self, state: State):
-        self.state = state
-        self.parent: Optional[RRTNode] = None
-        self.path_from_parent: List[State] = [] # 记录从父节点到当前节点的微观轨迹
+        self.state = state                             # 1. 节点本身的状态 (x, y, theta_rad)
+        self.parent: Optional[RRTNode] = None          # 2. 父节点指针 (用于回溯路径)
+        self.path_from_parent: List[State] = []        # 3. 连接轨迹 (父节点 -> 当前节点的微观轨迹，多个 State 组成)
 
     @property
     def x(self): return self.state.x
@@ -25,16 +25,16 @@ class RRTNode:
 
 class RRTPlanner(PlannerBase):
     """
-    基于采样和运动学的 RRT 规划器
+    通用 RRT 规划器 (几何/动力学兼容版)
+    兼容 PointMass (几何/全向) 和 Ackermann (动力学/非完整)
     """
     def __init__(self, 
                  vehicle_model: VehicleBase,
                  collision_checker: CollisionChecker,
-                 # RRT 特有参数
-                 step_size: float = 2.0,       # 单次生长距离(米)或时间步长
+                 step_size: float = 2.0,       # 单次生长最大距离 [m]
                  max_iterations: int = 5000,   # 最大采样次数
-                 goal_sample_rate: float = 0.1,# 目标偏置概率 (5%-10% 是经验值)
-                 goal_threshold: float = 1.0   # 距离目标多近算到达
+                 goal_sample_rate: float = 0.1,# 目标偏置概率
+                 goal_threshold: float = 1.0   # 到达判定距离
                  ):
         
         self.vehicle = vehicle_model
@@ -44,6 +44,8 @@ class RRTPlanner(PlannerBase):
         self.max_iter = max_iterations
         self.goal_sample_rate = goal_sample_rate
         self.goal_threshold = goal_threshold
+        
+        self.node_list: List[RRTNode] = []
 
     def plan(self, 
              start: State, 
@@ -59,32 +61,30 @@ class RRTPlanner(PlannerBase):
         start_node = RRTNode(start)
         self.node_list = [start_node]
 
-        print(f"[RRT] Start planning... Max Iter: {self.max_iter}")
+        print(f"[RRT] Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}")
 
         for i in range(self.max_iter):
             # 2. 采样 (Sample)
-            # 有一定概率直接采样目标点 (Goal Bias)，加速收敛
             rnd_state = self._get_random_sample(goal, grid_map)
 
             # 3. 寻找最近邻 (Nearest)
             nearest_node = self._get_nearest_node(self.node_list, rnd_state)
 
             # 4. 生长 (Steer / Propagate)
-            # 利用车辆运动学模型向前推演
-            new_node = self._steer(nearest_node, rnd_state, self.step_size)
+            # [核心修改] 将动力学推演委托给 Vehicle
+            new_node = self._steer(nearest_node, rnd_state)
 
             # 5. 碰撞检测 (Collision Check)
-            # 注意：不仅要检查终点，还要检查生长路径上的点是否碰撞
             if self._check_collision(new_node, grid_map):
                 continue
             
             # 6. 添加到树
             self.node_list.append(new_node)
             
-            # --- [Vis] 可视化调试 ---
-            # 记录这次扩展，Plotter 可以画出一条线
+            # [Vis] 可视化调试
             debugger.record_current_expansion(new_node.state)
-            # 这里也可以调用 debugger 画出 nearest -> new_node 的连线
+            # 可选：绘制树枝
+            # debugger.draw_line(nearest_node.state, new_node.state)
 
             # 7. 判断是否到达目标
             dist_to_goal = math.hypot(new_node.x - goal.x, new_node.y - goal.y)
@@ -107,91 +107,68 @@ class RRTPlanner(PlannerBase):
         rx = random.uniform(0, phys_w)
         ry = random.uniform(0, phys_h)
         
-        # 对于 RRT，采样的 theta 通常可以是随机的，
-        # 或者在 _steer 阶段由几何关系计算，这里暂设为 0
         return State(rx, ry, 0.0)
 
     def _get_nearest_node(self, node_list: List[RRTNode], rnd_state: State) -> RRTNode:
-        """
-        寻找树中离采样点最近的节点
-        注：这里用的是欧氏距离。对于 Ackermann 车辆，如果想更精确，
-        可以使用 Reeds-Shepp 距离，但计算量会大增。
-        """
+        """寻找最近节点 (欧氏距离)"""
+        # 注意：对于非完整约束车辆，欧氏距离不是完美的度量，但在 RRT 中通常作为一种可接受的启发式
         dists = [(node.x - rnd_state.x)**2 + (node.y - rnd_state.y)**2 
                  for node in node_list]
         min_idx = dists.index(min(dists))
         return node_list[min_idx]
 
-    def _steer(self, from_node: RRTNode, to_state: State, extend_length: float) -> RRTNode:
+    def _steer(self, from_node: RRTNode, to_state: State) -> RRTNode:
         """
-        核心生长函数：从 from_node 向 to_state 生长 extend_length 的距离
+        核心生长函数：委托给 Vehicle 处理
         """
-        # 1. 计算期望的方向角
-        dx = to_state.x - from_node.x
-        dy = to_state.y - from_node.y
-        target_yaw = math.atan2(dy, dx)
+        # 这里的 max_dist 使用 self.step_size
+        final_state, trajectory = self.vehicle.propagate_towards(
+            start=from_node.state,
+            target=to_state,
+            max_dist=self.step_size
+        )
         
-        # 2. 运动学推演
-        # 我们需要计算应该输入的 steering angle。
-        # 简单策略：Pure Pursuit 逻辑或 P控制器
-        # 计算当前车头与目标方向的角度差
-        curr_yaw = from_node.state.theta_rad
-        diff_yaw = target_yaw - curr_yaw
-        diff_yaw = (diff_yaw + math.pi) % (2 * math.pi) - math.pi # 归一化到 -pi ~ pi
-        
-        # 尝试以最大能力转向目标
-        # 获取车辆的最大转角配置（如果有点话）
-        max_steer = getattr(self.vehicle.config, 'max_steer', 1.0) # 默认为 1.0 rad (~57deg)
-        steering = max(min(diff_yaw, max_steer), -max_steer)
-        
-        # 3. 使用 Vehicle 模型进行物理传播
-        # 将 step_size 拆分为几个小步长进行积分，以获得更平滑的路径
-        # 假设 extend_length 既代表距离，在恒定速度下也代表时间(v=1.0时)
-        dt = 0.2
-        num_steps = int(math.ceil(extend_length / dt)) # 简单处理：假设速度=1m/s
-        
-        curr_state = from_node.state
-        path = []
-        
-        for _ in range(num_steps):
-            # 只有全向车(PointMass)能直接横着走，Ackermann 必须遵循 steering
-            # 这里统一用 kinematic_propagate，传入 (v, steering)
-            # v = 1.0 m/s
-            curr_state = self.vehicle.kinematic_propagate(curr_state, (1.0, steering), dt)
-            path.append(curr_state)
-            
-        new_node = RRTNode(curr_state)
+        new_node = RRTNode(final_state)
         new_node.parent = from_node
-        new_node.path_from_parent = path # 存储这一段的详细轨迹
+        new_node.path_from_parent = trajectory
         
         return new_node
 
     def _check_collision(self, node: RRTNode, grid_map: GridMap) -> bool:
-        """检查节点及其父路径是否碰撞"""
-        # 1. 检查最终节点
+        """
+        检查节点及其父路径是否碰撞
+        """
+        # 1. 检查最终状态
         if self.collision_checker.check(self.vehicle, node.state, grid_map):
             return True
             
-        # 2. 检查生长过程中的路径点 (防止穿墙)
-        # RRT 的步长如果很大，中间必须采样检查
-        for s in node.path_from_parent:
-             if self.collision_checker.check(self.vehicle, s, grid_map):
-                 return True
+        # 2. 检查生长过程中的轨迹点 (防止穿墙)
+        # 如果 Vehicle 的 propagate_towards 返回的 trajectory 够密，这里就能保证安全
+        if node.path_from_parent:
+            for s in node.path_from_parent:
+                if self.collision_checker.check(self.vehicle, s, grid_map):
+                    return True
                  
         return False
 
     def _reconstruct_path(self, end_node: RRTNode) -> List[State]:
-        """回溯路径"""
+        """回溯路径，拼接详细轨迹"""
         path = []
         curr = end_node
+        
         while curr is not None:
-            # 注意：要把 path_from_parent 加入，才能得到平滑轨迹，而不仅仅是关键点
-            # path_from_parent 是从 parent -> current 的顺序
-            path.extend(reversed(curr.path_from_parent)) 
-            # 如果 path_from_parent 为空（起点），加入 state
-            if not curr.path_from_parent:
-                path.append(curr.state)
+            # RRTNode 的 path_from_parent 通常是从 parent -> current 的顺序
+            # 因为我们在回溯 (end -> start)，所以需要 reversed 这一小段，或者整体反转
+            
+            # 策略：先把整段 path_from_parent (parent -> curr) 倒序加入 (curr -> parent)
+            if curr.path_from_parent:
+                path.extend(reversed(curr.path_from_parent))
+            else:
+                # 起点节点没有 path_from_parent，直接加状态
+                if not path or path[-1] != curr.state: # 避免重复
+                    path.append(curr.state)
                 
             curr = curr.parent
             
+        # 现在 path 是从 Goal -> Start 的，翻转回 Start -> Goal
         return list(reversed(path))
