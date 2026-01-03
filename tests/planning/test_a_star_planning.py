@@ -33,12 +33,13 @@ def test_a_star_planning():
     
     # 2. 生成随机地图
     print("生成地图中...")
-    config = AckermannConfig(wheelbase=2.5, max_steer_deg=34.4, width=2.0)
-    vehicle_gen = AckermannVehicle(config)
-    
+
+    # 车辆配置 (质点模型)
+    vehicle_config = PointMassConfig(width=1.0, length=1.0, safe_margin=0.1)
+    vehicle = PointMassVehicle(vehicle_config)  
     # 稍微提高一点难度或密度
     generator = MapGenerator(
-        obstacle_density=0.15, 
+        obstacle_density=0.20, 
         inflation_radius_m=0.5, 
         num_waypoints=5,
         seed=42 
@@ -46,12 +47,7 @@ def test_a_star_planning():
     start_state = State(5.0, 5.0, 0.0)
     goal_state = State(90.0, 90.0, 0.0)
     
-    generator.generate(grid_map, vehicle_gen, start_state, goal_state, extra_paths=1, dead_ends=5)
-
-    # 3. 配置规划用的车辆 (PointMass)
-    vehicle_config = PointMassConfig(width=1.0, length=1.0, safe_margin=0.1)
-    vehicle = PointMassVehicle(vehicle_config)
-
+    generator.generate(grid_map, vehicle, start_state, goal_state, extra_paths=1, dead_ends=5)
     # 4. 碰撞检测
     col_config = CollisionConfig(method=CollisionMethod.CIRCLE_ONLY)
     collision_checker = CollisionChecker(col_config, vehicle, grid_map)
