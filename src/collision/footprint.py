@@ -56,6 +56,10 @@ class FootprintModel:
                 if self._point_in_polygon(cx, cy, poly_coords):
                     occupied_indices.append((x, y))
                     
+        # [Fix] 处理空列表的情况，确保形状始终为 (N, 2)
+        if not occupied_indices:
+            return np.zeros((0, 2), dtype=np.int32)
+        
         return np.array(occupied_indices, dtype=np.int32)
 
     def _point_in_polygon(self, x, y, poly):
@@ -86,7 +90,6 @@ class FootprintModel:
         
         # 2. 查表拿到 (dx, dy)
         offsets = self.lookup_table[angle_idx] # Shape: (N, 2)
-        
         # 3. 计算当前中心的网格坐标
         curr_ix = int(state.x / self.resolution)
         curr_iy = int(state.y / self.resolution)
