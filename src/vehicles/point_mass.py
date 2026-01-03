@@ -101,10 +101,12 @@ class PointMassVehicle(VehicleBase):
         else:
             dx, dy = 0, 0
             
-        # 4. 复用你刚才写的 geometric_step !
+        # 4. geometric_step 
         final_state = self.geometric_step(start, (dx, dy))
         
-        # 5. 对于几何直线，轨迹只要两头即可 (或者你可以生成中间插值点)
+        # 5. RRT算法中可以只取轨迹两头加快速度。
+        # 可能的问题在于中间的轨迹点可能被障碍物阻挡，导致路径不可达。
+        # 但是只要把 max_dist 调小一点，一般不会出现大问题。
         trajectory = [final_state] 
         
         return final_state, trajectory

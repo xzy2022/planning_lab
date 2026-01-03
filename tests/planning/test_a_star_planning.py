@@ -66,8 +66,10 @@ def test_a_star_planning():
         vehicle_model=vehicle,
         collision_checker=collision_checker,
         heuristic=octile_heuristic,
-        cost_functions=[dist_cost, clearance_cost], # 组合使用
-        weights=[1.0, 1.0]
+        cost_functions=[dist_cost, clearance_cost], 
+        # dist_cost的权重设置为1.0
+        # 这样 f = g + h 中 g>=h (h = EuclideanDistance = g1), 保证 A* 的最优性
+        weights=[1.0, 0.5]
     )
 
     debugger = PlanningDebugger()
