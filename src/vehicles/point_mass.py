@@ -107,7 +107,25 @@ class PointMassVehicle(VehicleBase):
         # 5. RRT算法中可以只取轨迹两头加快速度。
         # 可能的问题在于中间的轨迹点可能被障碍物阻挡，导致路径不可达。
         # 但是只要把 max_dist 调小一点，一般不会出现大问题。
-        trajectory = [final_state] 
+
+        # 5. 生成插值轨迹 (为了 MapGenerator 能连续清除障碍)
+        # 设定插值分辨率，例如每 0.1m 一个点
+        resolution = 0.1
+        num_steps = int(math.ceil(step / resolution))
+        
+        trajectory = []
+        if num_steps > 0:
+            for i in range(1, num_steps + 1):
+                ratio = i / num_steps
+                # 线性插值
+                ix = start.x + dx * ratio
+                iy = start.y + dy * ratio
+                # PointMass 角度通常保持不变，或者跟随移动方向
+                trajectory.append(State(ix, iy, start.theta_rad))
+        else:
+            # 如果移动距离极小，至少包含终点
+            trajectory.append(final_state)
+
         
         return final_state, trajectory
 

@@ -130,40 +130,56 @@ class MapGenerator:
         min_x, max_x = margin, grid_map.width * grid_map.resolution - margin
         min_y, max_y = margin, grid_map.height * grid_map.resolution - margin
 
+        # 1. 生成随机路点
         for _ in range(self.num_waypoints):
             rx = random.uniform(min_x, max_x)
             ry = random.uniform(min_y, max_y)
-            waypoints.append(State(rx, ry, 0.0))
+            rtheta_rad = random.uniform(-math.pi, math.pi)
+            waypoints.append(State(rx, ry, rtheta_rad))
         waypoints.append(goal)
         
         current_state = start
-        dt = 0.5
-        max_steer = getattr(vehicle.config, 'max_steer', 0.6)
+        
+        # [修改点] 定义单步最大生长距离 (类似 RRT 的 step_size)
+        # 这个值决定了“推土机”清理障碍的精细程度。
+        # 如果太大 (如 10m)，PointMass 会直接跳跃，导致中间的障碍没被清除。
+        # 建议设为 0.5m - 1.0m 左右，确保 footprint 能够覆盖路径。
+        step_size = 1.0 
+        
         target_idx = 0
-        step_count = 0
-
-        while step_count < self.max_steps and target_idx < len(waypoints):
+        total_steps = 0
+        
+        # 2. 逐个路点逼近
+        while total_steps < self.max_steps and target_idx < len(waypoints):
             target = waypoints[target_idx]
-            dx = target.x - current_state.x
-            dy = target.y - current_state.y
             
-            if math.hypot(dx, dy) < 4.0:
+            # 计算距离
+            dist = math.hypot(target.x - current_state.x, target.y - current_state.y)
+            
+            # 如果距离很近，切换到下一个路点
+            if dist < step_size:
                 target_idx += 1
-                if target_idx >= len(waypoints):
-                    # print("Generator: Path carved.") # 减少打印刷屏
-                    break
                 continue
-
-            target_yaw = math.atan2(dy, dx)
-            diff_yaw = target_yaw - current_state.theta_rad
-            diff_yaw = (diff_yaw + math.pi) % (2 * math.pi) - math.pi
-            steer = max(min(diff_yaw, max_steer), -max_steer)
             
-            next_state = vehicle.kinematic_propagate(current_state, (1.0, steer), dt)
-            self._clear_with_footprint(grid_map, footprint_model, next_state)
+            # [核心解耦]：委托 Vehicle 自己决定如何向 Target 移动一步
+            # - Ackermann: 会计算 steer，并返回一段细腻的轨迹 (list[State])
+            # - PointMass: 会计算直线位移，并返回终点
+            next_state, trajectory = vehicle.propagate_towards(
+                start=current_state, 
+                target=target, 
+                max_dist=step_size
+            )
             
+            # 3. 沿途清除障碍 (Footprint 推土机)
+            # 无论 trajectory 是包含多个密集的点 (Ackermann) 还是仅包含端点 (PointMass)，
+            # 只要 step_size 足够小 (小于车长)，就能保证路径被连续清除。
+            for s in trajectory:
+                self._clear_with_footprint(grid_map, footprint_model, s)
+            
+            # 更新状态
             current_state = next_state
-            step_count += 1
+            total_steps += 1
+
     def _clear_with_footprint(self, grid_map: GridMap, model: FootprintModel, state: State):
         indices = model.get_occupied_indices(state)
         valid_mask = (indices[:, 0] >= 0) & (indices[:, 0] < grid_map.width) & \
