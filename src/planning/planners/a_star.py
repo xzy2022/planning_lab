@@ -108,16 +108,12 @@ class AStarPlanner(PlannerBase):
                     continue
 
                 # B.3 计算 G 值
-                # Base Cost: 几何移动距离 (格子数 * 分辨率 * 权重)
-                geo_dist = cost_mult * grid_map.resolution
-                
-                # Extra Cost: 注入的代价函数 (如避障、平滑等)
-                # 注意：这里计算的是 "Edge Cost" (从 current 到 neighbor)
-                extra_cost = 0.0
+                # 一般 cost_fns 里面会包含几何距离、避障等，这里需要计算从当前点到邻居点的代价
+                g_cost = 0.0
                 for fn, w in zip(self.cost_fns, self.weights):
-                    extra_cost += w * fn.calculate(current_state, neighbor_state)
+                    g_cost += w * fn.calculate(current_state, neighbor_state)
 
-                new_g = g_scores[current_idx] + geo_dist + extra_cost
+                new_g = g_scores[current_idx] + g_cost
 
                 # B.4 更新 OpenSet
                 if neighbor_idx not in g_scores or new_g < g_scores[neighbor_idx]:
