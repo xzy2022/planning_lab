@@ -1,12 +1,9 @@
 # src/vehicles/point_mass.py
-
-from .base import VehicleBase, State
-
-# src/vehicles/point_mass.py
 import numpy as np
 from typing import Tuple
 from .base import VehicleBase, State
 from .config import PointMassConfig
+import math
 
 class PointMassVehicle(VehicleBase):
     """
@@ -64,6 +61,53 @@ class PointMassVehicle(VehicleBase):
         new_theta = start_state.theta_rad 
         
         return State(new_x, new_y, new_theta)
+    
+    def geometric_step(self, start: State, displacement: tuple) -> State:
+        """
+        基于位移的瞬时移动。
+        适用于 A* (4向/8向) 或 Geometric RRT (直接连线)。
+        
+        Args:
+            start: 起点
+            displacement: (dx, dy) 期望移动的向量
+        """
+        dx, dy = displacement
+        
+        # 限制最大步长 (可选，防止穿墙)
+        # dist = math.hypot(dx, dy)
+        # if dist > self.config.max_step: ...
+        
+        new_x = start.x + dx
+        new_y = start.y + dy
+        
+        return State(new_x, new_y, start.theta_rad)
+    
+    def propagate_towards(self, start: State, target: State, max_dist: float) -> tuple[State, list[State]]:
+        """
+        RRT 接口：直接向目标连线
+        """
+        # 1. 计算向量
+        dx = target.x - start.x
+        dy = target.y - start.y
+        dist = math.hypot(dx, dy)
+        
+        # 2. 截断距离
+        step = min(dist, max_dist)
+        
+        # 3. 归一化方向
+        if dist > 1e-6:
+            dx = (dx / dist) * step
+            dy = (dy / dist) * step
+        else:
+            dx, dy = 0, 0
+            
+        # 4. 复用你刚才写的 geometric_step !
+        final_state = self.geometric_step(start, (dx, dy))
+        
+        # 5. 对于几何直线，轨迹只要两头即可 (或者你可以生成中间插值点)
+        trajectory = [final_state] 
+        
+        return final_state, trajectory
 
     def get_visualization_polygon(self, state: State) -> np.ndarray:
         """

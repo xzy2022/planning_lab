@@ -22,7 +22,22 @@ class VehicleBase(ABC):
         """核心物理推演，留给子类实现"""
         pass
 
-# src/vehicles/base.py
+    @abstractmethod
+    def propagate_towards(self, start: State, target: State, max_dist: float) -> Tuple[State, List[State]]:
+        """
+        [新增接口] 尝试从 start 向 target 移动。
+        
+        Args:
+            start: 起点状态
+            target: 采样点/目标点状态
+            max_dist: 允许生长的最大距离 (RRT step_size)
+            
+        Returns:
+            (final_state, trajectory):
+            - final_state: 实际到达的最终状态
+            - trajectory: 过程中的轨迹点列表（用于碰撞检测）
+        """
+        pass
 
     @abstractmethod
     def get_bounding_circle(self, state: State) -> Tuple[float, float, float]:
