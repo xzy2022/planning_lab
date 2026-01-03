@@ -14,7 +14,7 @@ from src.map.generator import MapGenerator
 from src.vehicles.point_mass import PointMassVehicle, PointMassConfig
 from src.types import State
 from src.collision.checker import CollisionChecker, CollisionConfig, CollisionMethod
-from src.planning.planners.a_star import AStarPlanner
+from src.planning.planners import AStarPlanner, RRTPlanner 
 from src.visualization.debugger import PlanningDebugger
 from src.planning.costs.base import CostFunction
 from src.vehicles.ackermann import AckermannVehicle
@@ -66,7 +66,7 @@ def test_a_star_planning():
         vehicle_model=vehicle,
         collision_checker=collision_checker,
         heuristic=octile_heuristic,
-    cost_functions=[dist_cost, clearance_cost], # 组合使用
+        cost_functions=[dist_cost, clearance_cost], # 组合使用
         weights=[1.0, 1.0]
     )
 
