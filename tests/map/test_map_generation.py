@@ -11,6 +11,7 @@ from src.map.grid_map import GridMap
 from src.map.generator import MapGenerator
 from src.vehicles.ackermann import AckermannVehicle
 from src.vehicles.config import AckermannConfig
+from src.vehicles.point_mass import PointMassVehicle, PointMassConfig
 from src.types import State
 
 def test_feasible_map_generation():
@@ -19,17 +20,25 @@ def test_feasible_map_generation():
     # 100m x 100m 地图:
     # 旧: 200 x 0.5m = 100m (粗糙)
     # 新: 1000 x 0.1m = 100m (精细，能看清车身锯齿)
-    grid_map = GridMap(200, 200, resolution=0.5)
+    grid_map = GridMap(100, 100, resolution=0.5)
     
-    config = AckermannConfig(
-        wheelbase=2.5, 
-        max_steer_deg=34.4,
-        width=2.0  # 显式确认车宽，便于观察
-    )
-    vehicle = AckermannVehicle(config)
+    # config = AckermannConfig(
+    #     wheelbase=2.5, 
+    #     max_steer_deg=34.4,
+    #     width=2.0  # 显式确认车宽，便于观察
+    # )
+    # vehicle = AckermannVehicle(config)
+
+    # 车辆配置 (质点模型)
+    vehicle_config = PointMassConfig(width=1.0, length=1.0, safe_margin=0.1)
+    vehicle = PointMassVehicle(vehicle_config)
+
+    # 车辆配置 (质点模型) 用于获得非狭窄空间
+    vehicle_big_config = PointMassConfig(width=2.0, length=2.0, safe_margin=0.1)
+    vehicle_big = PointMassVehicle(vehicle_big_config)
     
-    start = State(5.0, 5.0, 0.0)
-    goal = State(90.0, 90.0, 0.0)
+    start = State(2.0, 2.0, 0.0)
+    goal = State(48.0, 48.0, 0.0)
     
     # 2. 调用生成器
     # 计算物理尺寸用于打印和可视化

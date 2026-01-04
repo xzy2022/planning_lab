@@ -1,3 +1,4 @@
+# experiments\benchmark_runner.py
 import sys
 import os
 import time
@@ -52,17 +53,12 @@ def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, t
     ax.plot(start.x, start.y, 'go', markersize=10, label='Start')
     ax.plot(goal.x, goal.y, 'rx', markersize=10, label='Goal')
     
-    # 3. 绘制已探索节点 (红色散点)
+    # 3. 绘制已探索节点
     if debugger.expanded_nodes:
-        # [修正点] debugger.expanded_nodes 已经是 [(x, y), ...] 的元组列表
-        # 直接转换为 numpy array 即可，无需再遍历取 .x .y
         nodes = np.array(debugger.expanded_nodes)
-        
-        # 确保 nodes 不是空的且形状正确 (N, 2)
         if nodes.ndim == 2 and nodes.shape[0] > 0:
             ax.scatter(nodes[:, 0], nodes[:, 1], c='red', s=2, alpha=0.6, label='Expanded Nodes')
     
-    # 设置标题和标签
     ax.set_title(f"FAILURE LOG: {algo_name} | Density: {density} | Trial: {trial_idx}")
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
@@ -70,61 +66,55 @@ def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, t
     ax.grid(True, linestyle=':', alpha=0.3)
     ax.set_aspect('equal')
     
-    # 4. 保存文件
     filename = f"fail_{algo_name}_d{density}_t{trial_idx}.png"
     filepath = os.path.join(LOG_DIR, filename)
     plt.savefig(filepath)
-    plt.close(fig) # 关闭图形释放内存
-    
+    plt.close(fig)
     print(f"  [LOG] {algo_name} 规划失败截图已保存: {filepath}")
 
 def run_experiment():
-    # --- 1. 实验参数设置 ---
-    densities = [0.05, 0.1, 0.15, 0.2, 0.25] # 障碍物密度梯度
-    num_trials = 10                          # 每个密度下测试多少张地图
-    map_width, map_height, res = 100, 100, 0.5 # 50m x 50m 地图
+    # --- 1. 实验参数设置 ---W
+    densities = [0.05, 0.1, 0.15, 0.2, 0.25]
+    num_trials = 100
+    map_width, map_height, res = 100, 100, 0.5
     
-    # 起终点设置
     start_state = State(2.0, 2.0, 0.0)
     goal_state = State(48.0, 48.0, 0.0)
 
-    # 车辆配置 (质点模型)
+    # 车辆配置
     vehicle_config = PointMassConfig(width=1.0, length=1.0, safe_margin=0.1)
     vehicle = PointMassVehicle(vehicle_config)
+
+    # 生成地图用的大车配置 (确保有足够空间)
+    vehicle_big_config = PointMassConfig(width=2.0, length=2.0, safe_margin=0.1)
+    vehicle_big = PointMassVehicle(vehicle_big_config)
     
-    # 结果存储容器
     results = []
 
-    print(f"{'Density':<10} | {'Algo':<10} | {'Success%':<10} | {'Time(ms)':<10} | {'Nodes':<10} | {'Len(m)':<10}")
-    print("-" * 80)
+    print(f"{'Density':<8} | {'Algo':<5} | {'Succ%':<6} | {'Time(ms)':<10} | {'T_Std':<8} | {'Nodes':<8} | {'N_Std':<8}")
+    print("-" * 85)
 
     # --- 2. 循环实验 ---
     for density in densities:
         
-        # 统计变量
         stats = {
             'A*': {'success': 0, 'time': [], 'nodes': [], 'length': []},
             'RRT': {'success': 0, 'time': [], 'nodes': [], 'length': []}
         }
 
         for i in range(num_trials):
-            # A. 生成地图 (使用相同的 Seed 确保 A* 和 RRT 在同一张图上跑)
             seed = 42 + i + int(density * 1000)
             grid_map = GridMap(width=map_width, height=map_height, resolution=res)
             
-            # 使用 MapGenerator 保证至少有一条路 (通过 Carve 机制)
             generator = MapGenerator(obstacle_density=density, inflation_radius_m=0.5, seed=seed)
-            # 生成时使用 PointMass 确保路径匹配车辆尺寸
-            generator.generate(grid_map, vehicle, start_state, goal_state, extra_paths=0, dead_ends=2)
+            generator.generate(grid_map, vehicle, start_state, goal_state, extra_paths=5, dead_ends=2)
             
-            # 初始化碰撞检测器
             col_config = CollisionConfig(method=CollisionMethod.RASTER)
             checker = CollisionChecker(col_config, vehicle, grid_map)
 
             # --- B. 运行 A* ---
             heuristic = OctileHeuristic()
             dist_cost = DistanceCost()
-            # 权重设置为 1.0 (保证最优性)
             a_star = AStarPlanner(vehicle, checker, heuristic, [dist_cost], [1.0])
             debugger_astar = PlanningDebugger()
             
@@ -138,11 +128,9 @@ def run_experiment():
                 stats['A*']['nodes'].append(len(debugger_astar.expanded_nodes))
                 stats['A*']['length'].append(calculate_path_length(path_astar))
             else:
-                # [新增] 失败记录逻辑
                 save_failure_snapshot(grid_map, start_state, goal_state, debugger_astar, "AStar", density, i)
 
             # --- C. 运行 RRT ---
-            # Step size 设为 2.0m, Max Iter 设为 5000
             rrt = RRTPlanner(vehicle, checker, step_size=2.0, max_iterations=5000, goal_sample_rate=0.1)
             debugger_rrt = PlanningDebugger()
             
@@ -156,74 +144,110 @@ def run_experiment():
                 stats['RRT']['nodes'].append(len(debugger_rrt.expanded_nodes))
                 stats['RRT']['length'].append(calculate_path_length(path_rrt))
             else:
-                # [新增] 失败记录逻辑
                 save_failure_snapshot(grid_map, start_state, goal_state, debugger_rrt, "RRT", density, i)
 
-        # --- 3. 汇总当前 Density 的数据 ---
+        # --- 3. 汇总与计算标准差 ---
         for algo in ['A*', 'RRT']:
             succ_rate = (stats[algo]['success'] / num_trials) * 100
-            avg_time = np.mean(stats[algo]['time']) if stats[algo]['time'] else 0
-            avg_nodes = np.mean(stats[algo]['nodes']) if stats[algo]['nodes'] else 0
-            avg_len = np.mean(stats[algo]['length']) if stats[algo]['length'] else 0
             
-            # 打印
-            print(f"{density:<10.2f} | {algo:<10} | {succ_rate:<10.1f} | {avg_time:<10.2f} | {avg_nodes:<10.1f} | {avg_len:<10.2f}")
+            # 计算均值和标准差
+            times = stats[algo]['time']
+            nodes = stats[algo]['nodes']
+            lengths = stats[algo]['length']
+
+            avg_time = np.mean(times) if times else 0
+            std_time = np.std(times) if times else 0
+            
+            avg_nodes = np.mean(nodes) if nodes else 0
+            std_nodes = np.std(nodes) if nodes else 0
+            
+            avg_len = np.mean(lengths) if lengths else 0
+            std_len = np.std(lengths) if lengths else 0
+            
+            # 打印简报
+            print(f"{density:<8.2f} | {algo:<5} | {succ_rate:<6.1f} | {avg_time:<10.2f} | {std_time:<8.2f} | {avg_nodes:<8.1f} | {std_nodes:<8.1f}")
             
             results.append({
                 'Density': density,
                 'Algorithm': algo,
                 'SuccessRate': succ_rate,
+                
                 'TimeMean': avg_time,
+                'TimeStd': std_time,
+                
                 'NodesMean': avg_nodes,
-                'LengthMean': avg_len
+                'NodesStd': std_nodes,
+                
+                'LengthMean': avg_len,
+                'LengthStd': std_len
             })
 
     return pd.DataFrame(results)
 
 def plot_comparisons(df):
-    """可视化对比图表"""
-    # 准备画布: 修改为 1行4列，且增加宽度 (24, 5)
-    fig, axes = plt.subplots(1, 4, figsize=(24, 5))
+    """可视化对比图表 (包含标准差误差棒) - 2x2 布局"""
+    # 使用 2行 2列，调整 figsize 为更接近正方形/竖向的比例
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
     
-    # 指标列表：新增 SuccessRate
+    # 展平 axes 数组以便于在循环中线性索引 (从 [[ax1, ax2], [ax3, ax4]] 变为 [ax1, ax2, ax3, ax4])
+    axes_flat = axes.flatten()
+    
+    # 格式: (Y轴字段名, 标准差字段名, Y轴标签, 标题)
     metrics = [
-        ('SuccessRate', 'Success Rate (%)', 'Reliability'),
-        ('TimeMean', 'Computation Time (ms)', 'Time Complexity'),
-        ('NodesMean', 'Expanded Nodes', 'Space Complexity'),
-        ('LengthMean', 'Path Length (m)', 'Optimality')
+        ('SuccessRate', None, 'Success Rate (%)', 'Reliability'),
+        ('TimeMean', 'TimeStd', 'Time (ms)', 'Time Complexity (Mean ± Std)'),
+        ('NodesMean', 'NodesStd', 'Expanded Nodes', 'Space Complexity (Mean ± Std)'),
+        ('LengthMean', 'LengthStd', 'Path Length (m)', 'Optimality (Mean ± Std)')
     ]
     
-    densities = df['Density'].unique()
+    # 定义颜色和样式
+    styles = {
+        'A*': {'color': 'blue', 'fmt': 'o-', 'ecolor': 'lightblue'},
+        'RRT': {'color': 'orange', 'fmt': 's-', 'ecolor': 'moccasin'}
+    }
     
-    for i, (metric, ylabel, title) in enumerate(metrics):
-        ax = axes[i]
+    for i, (metric, std_metric, ylabel, title) in enumerate(metrics):
+        ax = axes_flat[i] # 使用展平后的索引
         
-        # 提取数据
-        data_astar = df[df['Algorithm'] == 'A*']
-        data_rrt = df[df['Algorithm'] == 'RRT']
+        for algo in ['A*', 'RRT']:
+            data = df[df['Algorithm'] == algo]
+            x = data['Density']
+            y = data[metric]
+            
+            style = styles[algo]
+            
+            if std_metric:
+                yerr = data[std_metric]
+                ax.errorbar(x, y, yerr=yerr, 
+                            label=algo,
+                            fmt=style['fmt'],       
+                            color=style['color'],   
+                            ecolor=style['ecolor'], 
+                            elinewidth=2,           
+                            capsize=5,              
+                            capthick=2,
+                            alpha=0.9)
+            else:
+                ax.plot(x, y, style['fmt'], label=algo, color=style['color'])
         
-        # 绘图
-        ax.plot(data_astar['Density'], data_astar[metric], 'o-', label='A*', color='blue')
-        ax.plot(data_rrt['Density'], data_rrt[metric], 's-', label='RRT', color='orange')
-        
-        ax.set_xlabel('Obstacle Density')
-        ax.set_ylabel(ylabel)
-        ax.set_title(title)
+        ax.set_xlabel('Obstacle Density', fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_title(title, fontsize=14, fontweight='bold')
         ax.grid(True, linestyle=':', alpha=0.6)
         
-        # 仅在第一个图显示图例，避免遮挡
+        # 仅在第一个图显示图例
         if i == 0:
-            ax.legend()
+            ax.legend(fontsize=10)
         
     plt.tight_layout()
+    output_file = "benchmark_with_std.png"
+    print(f"\nSaving plot to {output_file}...")
+    plt.savefig(output_file, dpi=150)
     plt.show()
 
 if __name__ == "__main__":
     print(f"=== 开始 PointMass 路径规划对比实验 (A* vs RRT) ===")
     print(f"=== 失败日志将保存至: {LOG_DIR} ===")
-    
-    # 为了避免并行绘图出错，设置 matplotlib 后端为 Agg (如果是在无头服务器上跑)
-    # plt.switch_backend('Agg') 
     
     df_results = run_experiment()
     print("\n实验结束，正在绘图...")

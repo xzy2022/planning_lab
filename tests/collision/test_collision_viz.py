@@ -165,6 +165,7 @@ def visualize_collision_test():
                 ax.set_ylabel(f"State {row+1}\n({state.x:.1f}, {state.y:.1f})")
 
     plt.tight_layout()
+    plt.savefig("collision_test.png", dpi=150) # 建议加上 dpi 提高清晰度
     plt.show()
 
     # --- 打印统计结果 ---
