@@ -5,3 +5,7 @@
 [17:20]  [ATTEMPT] [尝试 2] 将 test_rrt_planning.py 碰撞检测改为 RASTER 并增加迭代次数 ->  成功: 规划成功，IndexError 已修复
 [18:49]  [ATTEMPT] [尝试 1] 使用推土机 (Bulldozer) 逻辑生成地图，通过增大 plow_vehicle 尺寸确保路径空间 ->  成功: RRT 在 0.05 密度下成功规划
 [18:58]  [ATTEMPT] [Logs Cleanup] PowerShell 强制转码 append_log.py ->  成功
+[20:37]  [ATTEMPT] [PathSmoothing] Starting implementation of GreedyShortcutSmoother ->  Initialized
+[20:38]  [ISSUE] [Tests] ModuleNotFoundError: No module named 'matplotlib' -> Run in condo environment py310
+[20:39]  [ATTEMPT] [PathSmoothing] Unit Test Execution ->  Passed: Path shortened successfully
+[20:42]  [ISSUE] [PathSmoothing] Test Failed: Smoothed path longer than original (66m > 60m) -> Fix: Add length check before swapping
