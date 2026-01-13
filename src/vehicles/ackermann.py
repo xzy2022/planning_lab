@@ -75,18 +75,15 @@ class AckermannVehicle(VehicleBase):
         """
         [实现接口] 尝试从 start 向 target 移动。
         对于阿克曼小车，这意味着计算指向 target 的方向盘转角，并向前模拟一段距离。
+        支持前进和倒车。
         """
-        # 1. 计算相对位置
         dx = target.x - start.x
         dy = target.y - start.y
         dist_to_target = math.hypot(dx, dy)
 
-        # 如果距离极小，认为已经到达
         if dist_to_target < 1e-3:
             return start, [start]
 
-        # 2. 决定移动步长 (RRT Extend 逻辑)
-        # 我们不能超过 max_dist，也不能超过实际到目标的距离
         move_dist = min(dist_to_target, max_dist)
 
         # 3. 决定控制量 (v, steering)
@@ -94,20 +91,29 @@ class AckermannVehicle(VehicleBase):
         target_angle = math.atan2(dy, dx)
         angle_diff = self.normalize_angle(target_angle - start.theta_rad)
 
-        # 简单的 Steering 策略：
-        # 将方向盘转角设置为角度偏差，但必须限制在 max_steer 范围内 (Clamp)
-        # 注意：这是一种贪心策略(Greedy)，假设朝着目标方向打方向盘就能靠近。
-        limit = self.config.max_steer
-        steering = max(min(angle_diff, limit), -limit)
-        
         # 速度：默认使用配置中的最大速度，或者设为定值 1.0 m/s
         # 假设 config 中有 max_v，如果没有建议在 Config 里加上，或暂时硬编码
-        v = getattr(self.config, 'max_velocity', 2.0) 
+        v_limit = getattr(self.config, 'max_velocity', 2.0)
+        # 判定方向：前进还是倒车？
+        if abs(angle_diff) > math.pi / 2:
+            # 目标在后方，选择倒车
+            v = -v_limit
+            # 倒车对应的航向偏差 (以车尾为基准)
+            actual_angle_diff = self.normalize_angle(angle_diff - math.pi)
+        else:
+            # 目标在前方，选择前进
+            v = v_limit
+            actual_angle_diff = angle_diff
 
-        # 4. 离散化积分生成轨迹
-        dt = 0.1  # 积分时间步长 (秒)
+        # 2. 决定转向角
+        limit = self.config.max_steer
+        # 简单的比例控制 (或者直接打死)
+        steering = max(min(actual_angle_diff, limit), -limit)
+
+        # 3. 离散化积分生成轨迹
+        dt = 0.1 # 积分时间步长 (秒)
         # 计算需要的总时间
-        total_time = move_dist / v
+        total_time = abs(move_dist / v)
         # 计算步数 (向上取整)
         steps = int(math.ceil(total_time / dt))
         

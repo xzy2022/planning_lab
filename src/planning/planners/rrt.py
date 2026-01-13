@@ -83,8 +83,8 @@ class RRTPlanner(PlannerBase):
             
             # [Vis] 可视化调试
             debugger.record_current_expansion(new_node.state)
-            # 可选：绘制树枝
-            # debugger.draw_line(nearest_node.state, new_node.state)
+            # 绘制树枝
+            debugger.record_edge(nearest_node.state, new_node.state)
 
             # 7. 判断是否到达目标
             dist_to_goal = math.hypot(new_node.x - goal.x, new_node.y - goal.y)
