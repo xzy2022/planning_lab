@@ -117,7 +117,7 @@ def visualize_result_as_animation(grid_map, path, debugger, start, goal):
 
     # --- 动画数据准备 ---
     # 转换 list 为 numpy array 以提高性能
-    expanded_data = np.array(debugger.expanded_nodes) if debugger.expanded_nodes else np.empty((0, 2))
+    expanded_data = np.array([[s.x, s.y] for s in debugger.expanded_nodes]) if debugger.expanded_nodes else np.empty((0, 2))
     
     total_nodes = len(expanded_data)
     

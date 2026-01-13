@@ -24,8 +24,8 @@ from src.planning.heuristics import EuclideanHeuristic, OctileHeuristic
 
 
 
-def test_a_star_planning():
-    print("=== 开始 A* 规划测试 (动画版) ===")
+def test_rrt_planning():
+    print("=== 开始 RRT 规划测试 (动画版) ===")
 
     # 1. 初始化地图
     width, height, res = 200, 200, 0.5
@@ -53,7 +53,7 @@ def test_a_star_planning():
     vehicle = PointMassVehicle(vehicle_config)
 
     # 4. 碰撞检测
-    col_config = CollisionConfig(method=CollisionMethod.CIRCLE_ONLY)
+    col_config = CollisionConfig(method=CollisionMethod.RASTER)
     collision_checker = CollisionChecker(col_config, vehicle, grid_map)
 
     # 5. 规划器
@@ -66,7 +66,7 @@ def test_a_star_planning():
         vehicle_model=vehicle,
         collision_checker=collision_checker,
         step_size=2.0,       # 每次生长 2 米
-        max_iterations=5000, # 尝试 5000 次
+        max_iterations=10000, # 尝试 10000 次
         goal_sample_rate=0.1 # 10% 概率直接朝向终点
     )
 
@@ -110,7 +110,7 @@ def visualize_result_as_animation(grid_map, path, debugger, start, goal):
     line_path, = ax.plot([], [], 'b-', linewidth=2.5, label='Planned Path', alpha=0.0)
     
     # 设置标题和标签
-    title_text = ax.set_title("A* Search Progress: Frame 0")
+    title_text = ax.set_title("RRT Search Progress: Frame 0")
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
     ax.legend(loc='upper left')
@@ -119,7 +119,7 @@ def visualize_result_as_animation(grid_map, path, debugger, start, goal):
 
     # --- 动画数据准备 ---
     # 转换 list 为 numpy array 以提高性能
-    expanded_data = np.array(debugger.expanded_nodes) if debugger.expanded_nodes else np.empty((0, 2))
+    expanded_data = np.array([[s.x, s.y] for s in debugger.expanded_nodes]) if debugger.expanded_nodes else np.empty((0, 2))
     
     total_nodes = len(expanded_data)
     
@@ -152,7 +152,7 @@ def visualize_result_as_animation(grid_map, path, debugger, start, goal):
             scatter_expanded.set_offsets(current_data)
         
         # 更新标题
-        title_text.set_text(f"A* Searching... Nodes: {current_idx}/{total_nodes}")
+        title_text.set_text(f"RRT Searching... Nodes: {current_idx}/{total_nodes}")
 
         # 2. 如果搜索结束（最后几帧），显示最终路径
         if current_idx >= total_nodes and path:
@@ -182,4 +182,4 @@ def visualize_result_as_animation(grid_map, path, debugger, start, goal):
     plt.show()
 
 if __name__ == "__main__":
-    test_a_star_planning()
+    test_rrt_planning()
