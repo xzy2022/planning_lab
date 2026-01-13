@@ -38,18 +38,28 @@ def test_kinematic_rrt_planning():
     )
     vehicle = AckermannVehicle(vehicle_config)
     
-    # 3. 生成随机地图
-    print("生成地图中... (极简地图验证基线)")
+    # 3. 准备推土机 (Bulldozer) 用于生成地图，确保路径充裕
+    plow_config = AckermannConfig(
+        wheelbase=2.5, 
+        max_steer_deg=35.0, 
+        width=2.5,       # 增加宽度 (原 2.0)
+        front_hang=1.2,  # 增加前悬 (原 0.9)
+        rear_hang=1.2,   # 增加后悬 (原 0.9)
+        safe_margin=0.5  # 增加安全边际
+    )
+    plow_vehicle = AckermannVehicle(plow_config)
+
+    print("生成地图中... (使用推土机模式)")
     generator = MapGenerator(
-        obstacle_density=0.01, # 极其空旷
+        obstacle_density=0.25, 
         inflation_radius_m=0.1, 
-        num_waypoints=1,
+        num_waypoints=3,       # 增加路点使地图更复杂一点
         seed=1234 
     )
     start_state = State(10.0, 10.0, 0.0)
     goal_state = State(90.0, 90.0, 0.0)
     
-    generator.generate(grid_map, vehicle, start_state, goal_state, extra_paths=1, dead_ends=0)
+    generator.generate(grid_map, plow_vehicle, start_state, goal_state, extra_paths=2, dead_ends=2)
 
     # 4. 碰撞检测
     col_config = CollisionConfig(method=CollisionMethod.RASTER)
@@ -66,10 +76,10 @@ def test_kinematic_rrt_planning():
     rrt_planner = RRTPlanner(
         vehicle_model=vehicle,
         collision_checker=collision_checker,
-        step_size=5.0,       
-        max_iterations=20000, 
+        step_size=3.0,       # 减小步长以适应更复杂的地图
+        max_iterations=50000,# 增加迭代次数
         goal_sample_rate=0.2, 
-        goal_threshold=3.0   
+        goal_threshold=5.0   # 略微增大目标阈值，后续可以通过局部优化接入
     )
 
     debugger = PlanningDebugger()
