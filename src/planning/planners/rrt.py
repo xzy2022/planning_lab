@@ -60,6 +60,10 @@ class RRTPlanner(PlannerBase):
         # 1. 初始化树
         start_node = RRTNode(start)
         self.node_list = [start_node]
+        
+        # Best node tracking for fallback
+        best_node = None
+        min_dist_to_goal = float('inf')
 
         print(f"[RRT] Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}")
 
@@ -86,14 +90,59 @@ class RRTPlanner(PlannerBase):
             # 绘制树枝
             debugger.record_edge(nearest_node.state, new_node.state)
 
-            # 7. 判断是否到达目标
+            # 7. 判断是否到达目标 (区域)
             dist_to_goal = math.hypot(new_node.x - goal.x, new_node.y - goal.y)
+            
+            # Update best node
+            if dist_to_goal < min_dist_to_goal:
+                min_dist_to_goal = dist_to_goal
+                best_node = new_node
+
             if dist_to_goal <= self.goal_threshold:
-                print(f"[RRT] Goal reached at iter {i}!")
-                return self._reconstruct_path(new_node)
+                # [Optimization] Analytic Expansion (尝试直接连接终点)
+                # 当进入阈值范围时，尝试"打一枪"看能不能直接连上精确的终点
+                # 注意：给 max_dist 一个稍微宽裕的值，确保能覆盖剩余距离
+                final_state, trajectory = self.vehicle.propagate_towards(
+                    start=new_node.state,
+                    target=goal,
+                    max_dist=dist_to_goal * 1.5 + 1.0 
+                )
+                
+                # 检查1: 是否真的接近了终点 (因为运动学约束，可能拐不过去)
+                final_dist = math.hypot(final_state.x - goal.x, final_state.y - goal.y)
+                
+                # 检查2: 这段“补枪”路径是否碰撞
+                is_safe = not self._check_collision_trajectory(trajectory, grid_map)
+                
+                if final_dist < 2.0 and is_safe: # 放宽到 2.0m (视觉上已经很近了，比起 5m)
+                     print(f"[RRT] Analytic Expansion succeeded! Goal reached.")
+                     goal_node = RRTNode(final_state)
+                     goal_node.parent = new_node
+                     goal_node.path_from_parent = trajectory
+                     return self._reconstruct_path(goal_node)
+                else:
+                    # Log failure to file for debug
+                    # import os
+                    # os.system(f'python logs/append_log.py "⚠️ [DEBUG]" "RRT" "Analytic Exp Failed: Dist={final_dist:.2f}, Safe={is_safe}"')
+                    pass
+        
+        # Fallback: If we couldn't connect exactly, but found something within threshold, return it.
+        # This addresses "RRT Failed" when we were actually close enough.
+        if best_node and min_dist_to_goal <= self.goal_threshold:
+            print(f"[RRT] Exact connection to goal failed. Returning closest node (Dist: {min_dist_to_goal:.2f}m)")
+            return self._reconstruct_path(best_node)
 
         print("[RRT] Max iterations reached, path not found.")
         return []
+
+    def _check_collision_trajectory(self, trajectory: List[State], grid_map: GridMap) -> bool:
+        """辅助函数：检查一段轨迹是否碰撞"""
+        if not trajectory:
+            return False
+        for s in trajectory:
+            if self.collision_checker.check(self.vehicle, s, grid_map):
+                return True
+        return False
 
     def _get_random_sample(self, goal: State, grid_map: GridMap) -> State:
         """随机采样状态"""

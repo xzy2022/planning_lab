@@ -9,3 +9,6 @@
 [20:38]  [ISSUE] [Tests] ModuleNotFoundError: No module named 'matplotlib' -> Run in condo environment py310
 [20:39]  [ATTEMPT] [PathSmoothing] Unit Test Execution ->  Passed: Path shortened successfully
 [20:42]  [ISSUE] [PathSmoothing] Test Failed: Smoothed path longer than original (66m > 60m) -> Fix: Add length check before swapping
+[20:54]  [DISCOVERY] [RRTPlanner] Path stops at goal_threshold boundary, leaving a visual gap to the exact goal -> Plan: Implement Analytic Expansion
+[20:56]  [ISSUE] [RRTPlanner] Analytic Expansion caused planning failure (Max Iterations) -> Suspect strict connection constraints. Adding debug prints.
+[21:10]  [ATTEMPT] [RRTPlanner] Impl Fallback: If Analytic Expansion fails, return closest node within threshold ->  Balanced robustness vs precision
