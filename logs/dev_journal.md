@@ -14,3 +14,4 @@
 [21:10]  [ATTEMPT] [RRTPlanner] Impl Fallback: If Analytic Expansion fails, return closest node within threshold ->  Balanced robustness vs precision
 [21:25]  [ISSUE] [HybridAStar] Planning failed immediately (0.00s). Suspecting neighbor generation or collision check issues. -> Investigating with debug prints.
 [21:32]  [ATTEMPT] [HybridAStar] Implemented Hybrid A* with step_size=1.0 and goal clearing. ->  Success: Path found in 13.21s with 10k nodes expanded.
+[22:03]  [ATTEMPT] [Navigator Simulation] Simulated navigation with unknown obstacles. ->  Success: Vehicle replanned and reached goal.
