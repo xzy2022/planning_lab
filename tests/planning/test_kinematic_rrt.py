@@ -51,7 +51,7 @@ def test_kinematic_rrt_planning():
 
     print("生成地图中... (使用推土机模式)")
     generator = MapGenerator(
-        obstacle_density=0.25, 
+        obstacle_density=0.20, 
         inflation_radius_m=0.1, 
         num_waypoints=3,       # 增加路点使地图更复杂一点
         seed=1234 
@@ -59,10 +59,10 @@ def test_kinematic_rrt_planning():
     start_state = State(10.0, 10.0, 0.0)
     goal_state = State(90.0, 90.0, 0.0)
     
-    generator.generate(grid_map, plow_vehicle, start_state, goal_state, extra_paths=2, dead_ends=2)
+    generator.generate(grid_map, plow_vehicle, start_state, goal_state, extra_paths=4, dead_ends=2)
 
     # 4. 碰撞检测
-    col_config = CollisionConfig(method=CollisionMethod.RASTER)
+    col_config = CollisionConfig(method=CollisionMethod.POLYGON)
     collision_checker = CollisionChecker(col_config, vehicle, grid_map)
 
     # 检查起点是否碰撞
