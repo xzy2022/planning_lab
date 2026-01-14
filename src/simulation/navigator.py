@@ -44,7 +44,7 @@ class Navigator:
         self.replan_count = 0
         self.step_count = 0
     
-    def navigate(self, max_steps: int = 1000) -> bool:
+    def navigate(self, max_steps: int = 1000, step_callback=None) -> bool:
         """
         Main execution loop.
         """
@@ -90,6 +90,9 @@ class Navigator:
             # Here we trust the planner's state
             self.current_state = next_state
             self.navigated_path.append(next_state)
+            
+            if step_callback:
+                step_callback(self)
             
         print("Max steps reached.")
         return False

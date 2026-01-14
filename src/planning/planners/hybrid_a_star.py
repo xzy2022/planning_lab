@@ -66,10 +66,11 @@ class HybridAStarPlanner(PlannerBase):
              goal: State, 
              grid_map: GridMap, 
              debugger: IPlannerObserver = None) -> List[State]:
-        debugger.log(f"Plan requested: {start} -> {goal}", level='INFO')
-        
         if debugger is None:
             debugger = NoOpDebugger()
+            
+        debugger.log(f"Plan requested: {start} -> {goal}", level='INFO')
+        
         debugger.set_map_info(grid_map)
 
         # 1. Initialization
