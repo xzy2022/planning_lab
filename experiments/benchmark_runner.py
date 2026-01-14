@@ -75,7 +75,7 @@ def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, t
 def run_experiment():
     # --- 1. 实验参数设置 ---W
     densities = [0.05, 0.1, 0.15, 0.2, 0.25]
-    num_trials = 100
+    num_trials = 10
     map_width, map_height, res = 100, 100, 0.5
     
     start_state = State(2.0, 2.0, 0.0)
