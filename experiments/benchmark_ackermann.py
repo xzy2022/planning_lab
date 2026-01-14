@@ -19,9 +19,17 @@ from src.planning.planners import RRTPlanner, HybridAStarPlanner
 from src.planning.smoother import GreedyShortcutSmoother
 from src.visualization.debugger import PlanningDebugger
 
+
 # --- Log Directory ---
-LOG_DIR = os.path.join(os.path.dirname(__file__), "logs_ackermann")
-os.makedirs(LOG_DIR, exist_ok=True)
+# Configured in BenchmarkConfig
+from experiments.benchmark_config import BenchmarkConfig as cfg
+os.makedirs(cfg.LOG_DIR, exist_ok=True)
+
+def log_experiment(msg, to_console=True):
+    with open(cfg.EXPERIMENT_LOG_PATH, "a") as f:
+        f.write(msg + "\n")
+    if to_console:
+        print(msg)
 
 def calculate_path_length(path):
     """Calculate cumulative Euclidean distance of the path (only x,y)"""
@@ -59,10 +67,36 @@ def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, t
     ax.set_aspect('equal')
     
     filename = f"fail_ackermann_{algo_name}_d{density}_t{trial_idx}.png"
-    filepath = os.path.join(LOG_DIR, filename)
+    filepath = os.path.join(cfg.LOG_DIR, filename)
     plt.savefig(filepath)
     plt.close(fig)
     print(f"  [LOG] Failure snapshot saved: {filepath}")
+    
+    # 打印复现命令 并 记录详细信息到文件
+    repro_cmd = f"python experiments/debug_experiment.py --algo {algo_name} --density {density} --seed {grid_map.seed}"
+    print(f"  [REPRODUCE] {repro_cmd}")
+    
+    # 获取详细配置
+    from experiments.benchmark_config import BenchmarkConfig as cfg
+    algo_config = {}
+    if algo_name == "RRT":
+        algo_config = cfg.RRT_PARAMS
+    elif algo_name == "HybridAStar":
+        algo_config = cfg.HYBRID_ASTAR_PARAMS
+        
+    # 统计信息
+    num_nodes = len(debugger.expanded_nodes) if hasattr(debugger, 'expanded_nodes') else 0
+    
+    log_msg = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILURE: {algo_name} | Density: {density} | Trial: {trial_idx}\n"
+    log_msg += f"  Reproduction: {repro_cmd}\n"
+    log_msg += f"  Context:\n"
+    log_msg += f"    Map Seed: {grid_map.seed}\n"
+    log_msg += f"    Start: {start} | Goal: {goal}\n"
+    log_msg += f"    Expanded Nodes: {num_nodes}\n"
+    log_msg += f"    Config: {algo_config}\n"
+    log_msg += "-" * 80
+    
+    log_experiment(log_msg, to_console=False)
 
 from experiments.benchmark_config import BenchmarkConfig
 
@@ -80,10 +114,23 @@ def run_experiment():
     # Collision Checker (Polygon for accuracy)
     # Configured in BenchmarkConfig
     
+    # --- Initialize Log ---
+    if os.path.exists(cfg.EXPERIMENT_LOG_PATH):
+        os.remove(cfg.EXPERIMENT_LOG_PATH)
+        
+    log_experiment("=== Ackermann Planner Benchmark Experiment Log ===")
+    log_experiment(f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    log_experiment("Configuration:")
+    log_experiment(f"  Map: {cfg.PHYS_WIDTH}x{cfg.PHYS_HEIGHT}m (Res: {cfg.RESOLUTION}m)")
+    log_experiment(f"  Densities: {cfg.DENSITIES}")
+    log_experiment(f"  Trials/Density: {cfg.NUM_TRIALS}")
+    log_experiment("-" * 80)
+    
     results = []
 
-    print(f"{'Density':<8} | {'Algo':<12} | {'Succ%':<6} | {'Time(ms)':<10} | {'Len(m)':<8} | {'Nodes':<8}")
-    print("-" * 85)
+    header = f"{'Density':<8} | {'Algo':<12} | {'Succ%':<6} | {'Time(ms)':<10} | {'Len(m)':<8} | {'Nodes':<8}"
+    log_experiment(header)
+    log_experiment("-" * 85)
 
     # --- 2. Loop Execution ---
     for density in cfg.DENSITIES:
@@ -97,6 +144,7 @@ def run_experiment():
         for i in range(cfg.NUM_TRIALS):
             seed = cfg.RANDOM_SEED_BASE + int(density * 100) + i
             grid_map = GridMap(width=cfg.MAP_WIDTH, height=cfg.MAP_HEIGHT, resolution=cfg.RESOLUTION)
+            grid_map.seed = seed # Store for reproduction logging
             
             generator = MapGenerator(obstacle_density=density, inflation_radius_m=0.2, seed=seed)
             # Use extra_paths to create a more connected "local sensing" like environment
@@ -206,7 +254,8 @@ def run_experiment():
                 avg_len = np.mean(s_data['length'])
                 std_len = np.std(s_data['length'])
             
-            print(f"{density:<8.2f} | {algo:<12} | {succ_rate:<6.1f} | {avg_time:<10.1f} | {avg_len:<8.1f} | {avg_nodes:<8.1f}")
+            res_str = f"{density:<8.2f} | {algo:<12} | {succ_rate:<6.1f} | {avg_time:<10.1f} | {avg_len:<8.1f} | {avg_nodes:<8.1f}"
+            log_experiment(res_str)
             
             results.append({
                 'Density': density, 'Algorithm': algo, 'SuccessRate': succ_rate,
@@ -255,9 +304,17 @@ def plot_benchmark_results(df):
             ax.legend()
             
     plt.tight_layout()
-    outfile = "benchmark_ackermann_results.png"
-    plt.savefig(outfile, dpi=150)
-    print(f"\nSaved plots to {outfile}")
+    plt.tight_layout()
+    plt.savefig(cfg.RESULTS_PLOT_PATH, dpi=150)
+    
+    # helper for clean path printing
+    def format_path(p):
+        abs_p = os.path.abspath(p)
+        if len(abs_p) > 1 and abs_p[1] == ':':
+            return abs_p[0].upper() + abs_p[1:]
+        return abs_p
+
+    print(f"\nSaved plots to {format_path(cfg.RESULTS_PLOT_PATH)}")
     # plt.show() # Non-blocking in agent environment
 
 if __name__ == "__main__":
@@ -265,6 +322,19 @@ if __name__ == "__main__":
     df = run_experiment()
     if not df.empty:
         plot_benchmark_results(df)
+        
+        print("\n=== Experiment Outputs ===")
+        
+        # helper for clean path printing
+        def format_path(p):
+            abs_p = os.path.abspath(p)
+            if len(abs_p) > 1 and abs_p[1] == ':':
+                return abs_p[0].upper() + abs_p[1:]
+            return abs_p
+
+        print(f"Results Plot: {format_path(cfg.RESULTS_PLOT_PATH)}")
+        print(f"Log File: {format_path(cfg.EXPERIMENT_LOG_PATH)}")
+        
         print("\nBenchmark Complete.")
     else:
         print("No results generated.")

@@ -12,8 +12,14 @@ from src.collision.checker import CollisionConfig, CollisionMethod
 class BenchmarkConfig:
     # --- Experiment Settings ---
     DENSITIES = [0.10, 0.20]       # Obstacle densities to test
-    NUM_TRIALS = 20                # Number of trials per density
+    NUM_TRIALS = 2                 # Number of trials per density
     RANDOM_SEED_BASE = 1000        # Base seed for reproducibility
+
+    # --- Output Paths ---
+    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    LOG_DIR = os.path.join(_BASE_DIR, "logs_ackermann")
+    EXPERIMENT_LOG_PATH = os.path.join(LOG_DIR, "benchmark_log.txt")
+    RESULTS_PLOT_PATH = os.path.join(LOG_DIR, "benchmark_ackermann_results.png")
 
     # --- Map Parameters ---
     PHYS_WIDTH = 100.0             # meters
