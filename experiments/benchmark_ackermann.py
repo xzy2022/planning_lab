@@ -64,41 +64,21 @@ def save_failure_snapshot(grid_map, start, goal, debugger, algo_name, density, t
     plt.close(fig)
     print(f"  [LOG] Failure snapshot saved: {filepath}")
 
+from experiments.benchmark_config import BenchmarkConfig
+
 def run_experiment():
     # --- 1. Experiment Parameters ---
-    densities = [0.10, 0.20] # Obstacle densities to test
-    num_trials = 20 # Number of trials per density
+    cfg = BenchmarkConfig
     
-    # Map dimensions (Meters)
-    phys_width, phys_height = 100.0, 100.0
-    res = 0.5
-    map_width = int(phys_width / res)
-    map_height = int(phys_height / res)
+    # Vehicle & Plow Configs handled in config class
+    vehicle = AckermannVehicle(cfg.VEHICLE_CONFIG)
+    plow_vehicle = AckermannVehicle(cfg.PLOW_CONFIG)
     
-    start_state = State(5.0, 5.0, 0.0)
-    goal_state = State(90.0, 90.0, 0.0)
-
-    # Vehicle Config
-    vehicle_config = AckermannConfig(
-        wheelbase=2.5, 
-        max_steer_deg=40.0,  # Improved maneuverability
-        width=2.0, 
-        front_hang=1.0, 
-        rear_hang=1.0,
-        safe_margin=0.2
-    )
-    vehicle = AckermannVehicle(vehicle_config)
-
     # Map Generator Vehicle (Bulldozer)
-    # Slightly larger to ensure paths exist
-    plow_config = AckermannConfig(
-        wheelbase=2.5, max_steer_deg=35.0, width=3.0,
-        front_hang=1.2, rear_hang=1.2, safe_margin=0.5
-    )
-    plow_vehicle = AckermannVehicle(plow_config)
+    # Slightly larger to ensure paths exist - Configured in BenchmarkConfig
 
     # Collision Checker (Polygon for accuracy)
-    col_config = CollisionConfig(method=CollisionMethod.POLYGON)
+    # Configured in BenchmarkConfig
     
     results = []
 
@@ -106,7 +86,7 @@ def run_experiment():
     print("-" * 85)
 
     # --- 2. Loop Execution ---
-    for density in densities:
+    for density in cfg.DENSITIES:
         
         stats = {
             'RRT': {'success': 0, 'time': [], 'nodes': [], 'length': []},
@@ -114,35 +94,45 @@ def run_experiment():
             'HybridA*': {'success': 0, 'time': [], 'nodes': [], 'length': []}
         }
 
-        for i in range(num_trials):
-            seed = 1000 + int(density * 100) + i
-            grid_map = GridMap(width=map_width, height=map_height, resolution=res)
+        for i in range(cfg.NUM_TRIALS):
+            seed = cfg.RANDOM_SEED_BASE + int(density * 100) + i
+            grid_map = GridMap(width=cfg.MAP_WIDTH, height=cfg.MAP_HEIGHT, resolution=cfg.RESOLUTION)
             
             generator = MapGenerator(obstacle_density=density, inflation_radius_m=0.2, seed=seed)
             # Use extra_paths to create a more connected "local sensing" like environment
-            generator.generate(grid_map, plow_vehicle, start_state, goal_state, extra_paths=6, dead_ends=4)
+            generator.generate(
+                grid_map, plow_vehicle, cfg.START_STATE, cfg.GOAL_STATE, 
+                extra_paths=cfg.EXTRA_PATHS, dead_ends=cfg.DEAD_ENDS
+            )
             
-            checker = CollisionChecker(col_config, vehicle, grid_map)
+            checker = CollisionChecker(cfg.COLLISION_CONFIG, vehicle, grid_map)
 
             # Ensure start/goal are safe (Force clear if needed)
             # The MapGenerator carves paths, but random noise might still touch the exact start/goal pixels 
-            if checker.check(vehicle, start_state, grid_map):
-                generator._clear_rectangular_area(grid_map, start_state, 4.0)
+            if checker.check(vehicle, cfg.START_STATE, grid_map):
+                generator._clear_rectangular_area(grid_map, cfg.START_STATE, cfg.CLEAR_RADIUS)
             
-            if checker.check(vehicle, goal_state, grid_map):
-                generator._clear_rectangular_area(grid_map, goal_state, 4.0)
+            if checker.check(vehicle, cfg.GOAL_STATE, grid_map):
+                generator._clear_rectangular_area(grid_map, cfg.GOAL_STATE, cfg.CLEAR_RADIUS)
 
             # Re-check to be sure
-            if checker.check(vehicle, start_state, grid_map) or checker.check(vehicle, goal_state, grid_map):
+            if checker.check(vehicle, cfg.START_STATE, grid_map) or checker.check(vehicle, cfg.GOAL_STATE, grid_map):
                 print(f"  [Skip] Trial {i} Start/Goal still blocked after clearing!")
                 continue
 
             # --- A. RRT ---
-            rrt = RRTPlanner(vehicle, checker, step_size=3.0, max_iterations=10000, goal_sample_rate=0.1, goal_threshold=2.0)
+            r_params = cfg.RRT_PARAMS
+            rrt = RRTPlanner(
+                vehicle, checker, 
+                step_size=r_params['step_size'], 
+                max_iterations=r_params['max_iterations'], 
+                goal_sample_rate=r_params['goal_sample_rate'], 
+                goal_threshold=r_params['goal_threshold']
+            )
             debugger_rrt = PlanningDebugger()
             
             t0 = time.perf_counter()
-            path_rrt = rrt.plan(start_state, goal_state, grid_map, debugger_rrt)
+            path_rrt = rrt.plan(cfg.START_STATE, cfg.GOAL_STATE, grid_map, debugger_rrt)
             t1 = time.perf_counter()
             
             rrt_success = False
@@ -156,7 +146,7 @@ def run_experiment():
                 # --- B. RRT + Smoothing (Only if RRT succeeded) ---
                 smoother = GreedyShortcutSmoother(vehicle, checker, grid_map)
                 t_smooth_start = time.perf_counter()
-                path_smooth = smoother.smooth(path_rrt, max_iterations=150)
+                path_smooth = smoother.smooth(path_rrt, max_iterations=cfg.SMOOTHER_PARAMS['max_iterations'])
                 t_smooth_end = time.perf_counter()
                 
                 stats['RRT+Smooth']['success'] += 1
@@ -167,17 +157,22 @@ def run_experiment():
                 stats['RRT+Smooth']['length'].append(calculate_path_length(path_smooth))
                 
             else:
-                save_failure_snapshot(grid_map, start_state, goal_state, debugger_rrt, "RRT", density, i)
+                save_failure_snapshot(grid_map, cfg.START_STATE, cfg.GOAL_STATE, debugger_rrt, "RRT", density, i)
 
             # --- C. Hybrid A* ---
             # Using slightly coarser resolutions for speed if needed, but 0.5m/5deg is standard
-            has = HybridAStarPlanner(vehicle, checker, xy_resolution=0.5, theta_resolution=np.deg2rad(5.0), 
-                                     step_size=1.5, analytic_expansion_ratio=0.2) 
-                                     # Improved step_size for Ackermann
+            h_params = cfg.HYBRID_ASTAR_PARAMS
+            has = HybridAStarPlanner(
+                vehicle, checker, 
+                xy_resolution=h_params['xy_resolution'], 
+                theta_resolution=h_params['theta_resolution'], 
+                step_size=h_params['step_size'], 
+                analytic_expansion_ratio=h_params['analytic_expansion_ratio']
+            ) 
             debugger_has = PlanningDebugger()
             
             t0 = time.perf_counter()
-            path_has = has.plan(start_state, goal_state, grid_map, debugger_has)
+            path_has = has.plan(cfg.START_STATE, cfg.GOAL_STATE, grid_map, debugger_has)
             t1 = time.perf_counter()
             
             if path_has:
@@ -186,7 +181,7 @@ def run_experiment():
                 stats['HybridA*']['nodes'].append(len(debugger_has.expanded_nodes) if hasattr(debugger_has, 'expanded_nodes') else 0)
                 stats['HybridA*']['length'].append(calculate_path_length(path_has))
             else:
-                save_failure_snapshot(grid_map, start_state, goal_state, debugger_has, "HybridAStar", density, i)
+                save_failure_snapshot(grid_map, cfg.START_STATE, cfg.GOAL_STATE, debugger_has, "HybridAStar", density, i)
 
         # --- Aggregate Stats for Density ---
         for algo in ['RRT', 'RRT+Smooth', 'HybridA*']:
@@ -203,7 +198,7 @@ def run_experiment():
                 # For simplicity, assumed generated maps are valid mostly.
                 # Let's just use num_trials as denominator (conservative).
                 
-                succ_rate = (s_data['success'] / num_trials) * 100
+                succ_rate = (s_data['success'] / cfg.NUM_TRIALS) * 100
                 avg_time = np.mean(s_data['time'])
                 std_time = np.std(s_data['time'])
                 avg_nodes = np.mean(s_data['nodes'])
