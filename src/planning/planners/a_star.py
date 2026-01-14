@@ -9,6 +9,7 @@ from src.vehicles.base import VehicleBase
 from src.map.grid_map import GridMap
 from src.planning.heuristics.base import Heuristic
 from src.planning.costs.base import CostFunction
+from src.planning.interfaces import IPlannerObserver
 from src.visualization.debugger import IDebugger, NoOpDebugger
 from src.collision import CollisionChecker
 
@@ -42,12 +43,12 @@ class AStarPlanner(PlannerBase):
              start: State, 
              goal: State, 
              grid_map: GridMap, 
-             debugger: IDebugger = None) -> List[State]:
+             debugger: IPlannerObserver = None) -> List[State]:
         
         # 1. 初始化调试器
         if debugger is None:
             debugger = NoOpDebugger()
-        debugger.set_cost_map(grid_map)
+        debugger.set_map_info(grid_map)
 
         # 2. 坐标离散化 (State -> Grid Index)
         # 质点模型在 GridMap 上规划，本质是寻找格子的序列
@@ -56,7 +57,7 @@ class AStarPlanner(PlannerBase):
 
         # 边界检查：如果起点或终点不在地图内，直接返回
         if not (self._is_valid_index(start_idx, grid_map) and self._is_valid_index(goal_idx, grid_map)):
-            print("[A*] Start or Goal is out of map bounds.")
+            debugger.log("Start or Goal is out of map bounds.", level='ERROR')
             return []
 
         # 3. 初始化核心容器
@@ -129,7 +130,7 @@ class AStarPlanner(PlannerBase):
                     # --- [Vis] 记录 OpenSet ---
                     debugger.record_open_set_node(neighbor_state, f_val, h_val)
 
-        print("[A*] Open set is empty, no path found.")
+        debugger.log("Open set is empty, no path found.", level='WARN')
         return []
 
     def _is_valid_index(self, idx: Tuple[int, int], grid_map: GridMap) -> bool:

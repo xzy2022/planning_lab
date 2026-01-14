@@ -9,6 +9,7 @@ from src.planning.planners.base import PlannerBase
 from src.vehicles.base import VehicleBase
 from src.map.grid_map import GridMap
 from src.collision import CollisionChecker
+from src.planning.interfaces import IPlannerObserver
 from src.visualization.debugger import IDebugger, NoOpDebugger
 
 class RRTNode:
@@ -51,11 +52,11 @@ class RRTPlanner(PlannerBase):
              start: State, 
              goal: State, 
              grid_map: GridMap, 
-             debugger: IDebugger = None) -> List[State]:
+             debugger: IPlannerObserver = None) -> List[State]:
         
         if debugger is None:
             debugger = NoOpDebugger()
-        debugger.set_cost_map(grid_map) # 虽然 RRT 不用 CostMap，但为了绘图一致性
+        debugger.set_map_info(grid_map) 
 
         # 1. 初始化树
         start_node = RRTNode(start)
@@ -65,7 +66,8 @@ class RRTPlanner(PlannerBase):
         best_node = None
         min_dist_to_goal = float('inf')
 
-        print(f"[RRT] Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}")
+        debugger.log(f"Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}", level='INFO', 
+                     payload={'max_iter': self.max_iter, 'step_size': self.step_size})
 
         for i in range(self.max_iter):
             # 2. 采样 (Sample)
@@ -80,6 +82,7 @@ class RRTPlanner(PlannerBase):
 
             # 5. 碰撞检测 (Collision Check)
             if self._check_collision(new_node, grid_map):
+                debugger.log("Collision detected during expansion", level='DEBUG')
                 continue
             
             # 6. 添加到树
@@ -115,24 +118,21 @@ class RRTPlanner(PlannerBase):
                 is_safe = not self._check_collision_trajectory(trajectory, grid_map)
                 
                 if final_dist < 2.0 and is_safe: # 放宽到 2.0m (视觉上已经很近了，比起 5m)
-                     print(f"[RRT] Analytic Expansion succeeded! Goal reached.")
+                     debugger.log("Analytic Expansion succeeded! Goal reached.", level='INFO')
                      goal_node = RRTNode(final_state)
                      goal_node.parent = new_node
                      goal_node.path_from_parent = trajectory
                      return self._reconstruct_path(goal_node)
                 else:
-                    # Log failure to file for debug
-                    # import os
-                    # os.system(f'python logs/append_log.py "⚠️ [DEBUG]" "RRT" "Analytic Exp Failed: Dist={final_dist:.2f}, Safe={is_safe}"')
-                    pass
+                    debugger.log(f"Analytic Exp Failed: Dist={final_dist:.2f}, Safe={is_safe}", level='DEBUG')
         
         # Fallback: If we couldn't connect exactly, but found something within threshold, return it.
         # This addresses "RRT Failed" when we were actually close enough.
         if best_node and min_dist_to_goal <= self.goal_threshold:
-            print(f"[RRT] Exact connection to goal failed. Returning closest node (Dist: {min_dist_to_goal:.2f}m)")
+            debugger.log(f"Exact connection to goal failed. Returning closest node (Dist: {min_dist_to_goal:.2f}m)", level='WARN')
             return self._reconstruct_path(best_node)
 
-        print("[RRT] Max iterations reached, path not found.")
+        debugger.log("Max iterations reached, path not found.", level='WARN')
         return []
 
     def _check_collision_trajectory(self, trajectory: List[State], grid_map: GridMap) -> bool:

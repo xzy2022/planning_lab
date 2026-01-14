@@ -7,6 +7,7 @@ from src.types import State
 from src.planning.planners.base import PlannerBase
 from src.vehicles.ackermann import AckermannVehicle
 from src.map.grid_map import GridMap
+from src.planning.interfaces import IPlannerObserver
 from src.visualization.debugger import IDebugger, NoOpDebugger
 from src.collision.checker import CollisionChecker
 
@@ -64,12 +65,12 @@ class HybridAStarPlanner(PlannerBase):
              start: State, 
              goal: State, 
              grid_map: GridMap, 
-             debugger: IDebugger = None) -> List[State]:
-        print(f"[HybridA*] Plan requested: {start} -> {goal}")
+             debugger: IPlannerObserver = None) -> List[State]:
+        debugger.log(f"Plan requested: {start} -> {goal}", level='INFO')
         
         if debugger is None:
             debugger = NoOpDebugger()
-        debugger.set_cost_map(grid_map)
+        debugger.set_map_info(grid_map)
 
         # 1. Initialization
         start_idx = self._get_index(start)
@@ -77,10 +78,10 @@ class HybridAStarPlanner(PlannerBase):
         
         # Check start/goal validity
         if self.collision_checker.check(self.vehicle, start, grid_map):
-            print("[HybridA*] Start state is in collision!")
+            debugger.log("Start state is in collision!", level='ERROR')
             return []
         if self.collision_checker.check(self.vehicle, goal, grid_map):
-            print("[HybridA*] Goal state is in collision!")
+            debugger.log("Goal state is in collision!", level='ERROR')
             return []
 
         # OpenSet: Priority Queue of HybridNode
@@ -97,7 +98,7 @@ class HybridAStarPlanner(PlannerBase):
         while open_set:
             iterations += 1
             if iterations > max_iterations:
-                print("[HybridA*] Max iterations reached.")
+                debugger.log("Max iterations reached.", level='WARN')
                 break
 
             current_node = heapq.heappop(open_set)
