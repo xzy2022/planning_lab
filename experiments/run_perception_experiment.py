@@ -12,36 +12,36 @@ from src.map.grid_map import GridMap
 from src.map.generator import MapGenerator
 from src.vehicles.ackermann import AckermannVehicle
 from src.collision.checker import CollisionChecker
-from src.planning.planners import HybridAStarPlanner
+from src.planning.planners import HybridAStarPlanner, RRTPlanner
 from src.simulation.sensor import Sensor
 from src.simulation.navigator import Navigator
 from src.simulation.visualizer import SimulationVisualizer
+from src.visualization.observers import DebugObserver
 from experiments.benchmark_config import BenchmarkConfig as cfg
 
 def ensure_log_dir(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 
-def run_perception_experiment(density=0.1, seed=42, show_plot=False):
-    print(f"=== Running Perception Experiment (Density={density}, Seed={seed}) ===")
+def run_experiment(mode="perception", density=0.1, seed=42, algo="HybridA*", show_plot=False, interval=0.01):
+    print(f"=== Running Experiment (Mode={mode}, Algo={algo}, Density={density}, Seed={seed}) ===")
     
     # 1. Setup Environment
-    # Use BenchmarkConfig for consistency
     grid_map = GridMap(width=cfg.MAP_WIDTH, height=cfg.MAP_HEIGHT, resolution=cfg.RESOLUTION)
     grid_map.seed = seed
     
     vehicle = AckermannVehicle(cfg.VEHICLE_CONFIG)
-    plow_vehicle = AckermannVehicle(cfg.PLOW_CONFIG) # Used for map generation paths
+    plow_vehicle = AckermannVehicle(cfg.PLOW_CONFIG)
     
     print("Generating Global Map...")
     generator = MapGenerator(obstacle_density=density, inflation_radius_m=0.2, seed=seed)
-    # Generate map with some paths carved out to make it navigable
     generator.generate(
         grid_map, plow_vehicle, cfg.START_STATE, cfg.GOAL_STATE, 
         extra_paths=cfg.EXTRA_PATHS, dead_ends=cfg.DEAD_ENDS
     )
     
-    # Ensure Start/Goal are clear (using same logic as benchmark)
     checker = CollisionChecker(cfg.COLLISION_CONFIG, vehicle, grid_map)
+    
+    # Ensure Start/Goal are clear
     if checker.check(vehicle, cfg.START_STATE, grid_map):
         print("Clearing Start Area...")
         generator._clear_rectangular_area(grid_map, cfg.START_STATE, cfg.CLEAR_RADIUS)
@@ -49,32 +49,60 @@ def run_perception_experiment(density=0.1, seed=42, show_plot=False):
         print("Clearing Goal Area...")
         generator._clear_rectangular_area(grid_map, cfg.GOAL_STATE, cfg.CLEAR_RADIUS)
 
-    # Final check
     if checker.check(vehicle, cfg.START_STATE, grid_map) or checker.check(vehicle, cfg.GOAL_STATE, grid_map):
-        print("CRITICAL: Start or Goal is still blocked. Experiment might fail immediately.")
+        print("CRITICAL: Start or Goal is still blocked. Experiment might fail.")
 
-    # 2. Setup Simulation Components
-    print("Initializing Navigator and Sensor...")
+    # 2. Setup Planner
+    planner = None
+    if algo == "HybridA*":
+        h_params = cfg.HYBRID_ASTAR_PARAMS
+        planner = HybridAStarPlanner(
+            vehicle, checker, 
+            xy_resolution=h_params['xy_resolution'], 
+            theta_resolution=h_params['theta_resolution'], 
+            step_size=h_params['step_size'], 
+            analytic_expansion_ratio=h_params['analytic_expansion_ratio']
+        )
+    elif algo == "RRT":
+        r_params = cfg.RRT_PARAMS
+        planner = RRTPlanner(
+            vehicle, checker,
+            step_size=r_params['step_size'],
+            max_iterations=r_params['max_iterations'],
+            goal_sample_rate=r_params['goal_sample_rate'],
+            goal_threshold=r_params['goal_threshold']
+        )
+    else:
+        raise ValueError(f"Unknown algorithm: {algo}")
+
+    # 3. Execution based on Mode
+    if mode == "static":
+        run_static_mode(planner, grid_map, algo, density, seed)
+    elif mode == "perception":
+        run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, interval)
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+def run_static_mode(planner, grid_map, algo, density, seed):
+    print("--- Static Debug Mode ---")
+    observer = DebugObserver(log_dir="logs/planning_debug")
+    print(f"Debug Log initialized: {observer.logger.handlers[0].baseFilename}")
     
-    # Planner used by Navigator (Hybrid A*)
-    # We use same parameters as benchmark
-    h_params = cfg.HYBRID_ASTAR_PARAMS
-    # Note: Navigator re-initializes planner with local map, so we pass the instance
-    # But wait, Navigator takes a planner instance. 
-    # The navigator.traverse() -> _replan() calls planner.plan(start, goal, local_map)
-    # So the planner instance must be stateless regarding the map or we update it.
-    # HybridAStarPlanner.plan() takes grid_map as arg, so it's fine.
+    print("Starting planner...")
+    t0 = time.perf_counter()
+    path = planner.plan(cfg.START_STATE, cfg.GOAL_STATE, grid_map, debugger=observer)
+    t1 = time.perf_counter()
     
-    planner = HybridAStarPlanner(
-        vehicle, checker, 
-        xy_resolution=h_params['xy_resolution'], 
-        theta_resolution=h_params['theta_resolution'], 
-        step_size=h_params['step_size'], 
-        analytic_expansion_ratio=h_params['analytic_expansion_ratio']
-    )
+    duration_ms = (t1 - t0) * 1000
+    success = len(path) > 0
+    print(f"Planning Finished. Success: {success}, Time: {duration_ms:.2f} ms")
     
-    # Sensor with limited range (e.g., 20m)
-    sensor = Sensor(sensing_radius=20.0) 
+    # Save Visualization
+    save_static_viz(grid_map, cfg.START_STATE, cfg.GOAL_STATE, path, observer, algo, density, seed, success)
+
+def run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, interval):
+    print("--- Dynamic Perception Mode ---")
+    sensor = Sensor(sensing_radius=20.0)
     
     navigator = Navigator(
         global_map=grid_map,
@@ -85,68 +113,85 @@ def run_perception_experiment(density=0.1, seed=42, show_plot=False):
         vehicle=vehicle
     )
     
-    # 3. Visualization Setup (Optional)
     step_callback = None
     if show_plot:
         viz = SimulationVisualizer(title=f"Perception Experiment (D={density})")
-        step_callback = viz.update
+        # Lambda to match signature if needed, but update takes (navigator, interval)
+        step_callback = lambda nav: viz.update(nav, pause_interval=interval)
     
-    # 4. Run Navigation Loop
     print("Starting Navigation...")
     t0 = time.time()
-    success = navigator.navigate(max_steps=500, step_callback=step_callback) # 500 decision steps
+    success = navigator.navigate(max_steps=500, step_callback=step_callback)
     t1 = time.time()
     
     print(f"Navigation Finished. Success: {success}, Duration: {t1-t0:.2f}s")
     print(f"Total Replans: {navigator.replan_count}, Steps: {navigator.step_count}")
     
-    # 5. Save Final Visualization
-    save_visualization(navigator, grid_map, success, density, seed)
+    save_perception_viz(navigator, grid_map, success, density, seed)
     
     if show_plot:
-         print("Close the plot window to finish.")
-         plt.show()
+        print("Close the plot window to finish.")
+        plt.show()
 
-def save_visualization(navigator, global_map, success, density, seed):
+def save_static_viz(grid_map, start, goal, path, observer, algo, density, seed, success):
+    ensure_log_dir("logs/planning_debug")
+    fig, ax = plt.subplots(figsize=(12, 12))
+    
+    ax.imshow(grid_map.data, cmap='Greys', origin='lower', 
+              extent=[0, grid_map.width * grid_map.resolution, 
+                      0, grid_map.height * grid_map.resolution],
+              alpha=0.5)
+    
+    if observer.expanded_nodes:
+        xs, ys = [], []
+        for n in observer.expanded_nodes:
+            if hasattr(n, 'x'):
+                xs.append(n.x); ys.append(n.y)
+            elif isinstance(n, (list, tuple)):
+                xs.append(n[0]); ys.append(n[1])
+        ax.scatter(xs, ys, c='orange', s=2, alpha=0.5, label='Expanded')
+
+    if hasattr(observer, 'edges') and observer.edges:
+        for (s, e) in observer.edges:
+             ax.plot([s.x, e.x], [s.y, e.y], 'y-', linewidth=0.5, alpha=0.3)
+
+    if path:
+        px = [p.x for p in path]; py = [p.y for p in path]
+        ax.plot(px, py, 'b-', linewidth=2, label='Path')
+        
+    ax.plot(start.x, start.y, 'go', markersize=10, label='Start')
+    ax.plot(goal.x, goal.y, 'rx', markersize=10, label='Goal')
+    
+    ax.set_title(f"DEBUG: {algo} | D={density} | Seed={seed} | {'SUCCESS' if success else 'FAIL'}")
+    ax.legend()
+    
+    outfile = f"logs/planning_debug/debug_viz_{algo}_{seed}.png"
+    plt.savefig(outfile)
+    print(f"Visualization saved to: {outfile}")
+
+def save_perception_viz(navigator, global_map, success, density, seed):
     log_dir = "logs/perception_experiment"
     ensure_log_dir(log_dir)
     
     fig, ax = plt.subplots(figsize=(12, 12))
     
-    # 1. Global Map (Background) - Faint
     ax.imshow(global_map.data, cmap='Greys', origin='lower', 
               extent=[0, global_map.width * global_map.resolution, 
                       0, global_map.height * global_map.resolution],
               alpha=0.3, label='Global Map')
 
-    # 2. Local Map (What was discovered) - Overlay
-    # Use a different colormap or alpha to show discovered obstacles
-    # Valid data in local map: 0 (free), 1 (occupied), but we might have initialized with 0.
-    # We only want to show occupied cells that were discovered.
-    # Or just show the whole local map overlay?
-    # Let's show discovered obstacles in Red
-    
-    # Create an RGB image for local map
-    # We need to manually construct it because imshow overlay is tricky with 0s being transparent
-    
-    # Fast approach: Scatter plot for occupied cells in local map
-    # Only iterate if needed.
-    # Or just use imshow with MaskedArray
     local_data = navigator.local_map.data
-    masked_local = np.ma.masked_where(local_data == 0, local_data) # Mask free space
+    masked_local = np.ma.masked_where(local_data == 0, local_data)
     
     ax.imshow(masked_local, cmap='Reds', origin='lower',
               extent=[0, global_map.width * global_map.resolution, 
                       0, global_map.height * global_map.resolution],
               alpha=0.6, vmin=0, vmax=1)
     
-    # 3. Path
-    # Navigated Path (History)
     path_x = [s.x for s in navigator.navigated_path]
     path_y = [s.y for s in navigator.navigated_path]
     ax.plot(path_x, path_y, 'b.-', linewidth=2, markersize=4, label='Traversed Path')
     
-    # Start / Goal
     ax.plot(cfg.START_STATE.x, cfg.START_STATE.y, 'go', markersize=10, label='Start')
     ax.plot(cfg.GOAL_STATE.x, cfg.GOAL_STATE.y, 'rx', markersize=10, label='Goal')
     
@@ -160,9 +205,12 @@ def save_visualization(navigator, global_map, success, density, seed):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, default="perception", choices=["perception", "static"], help="Experiment mode")
     parser.add_argument("--density", type=float, default=0.1, help="Obstacle density")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--algo", type=str, default="HybridA*", choices=["HybridA*", "RRT"], help="Algorithm")
     parser.add_argument("--show", action="store_true", help="Show plot")
+    parser.add_argument("--interval", type=float, default=0.0001, help="Animation interval (s)")
     args = parser.parse_args()
     
-    run_perception_experiment(args.density, args.seed, args.show)
+    run_experiment(args.mode, args.density, args.seed, args.algo, args.show, args.interval)

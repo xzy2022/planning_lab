@@ -16,7 +16,7 @@ class SimulationVisualizer:
         self.start_plot = None
         self.goal_plot = None
 
-    def update(self, navigator: Navigator):
+    def update(self, navigator: Navigator, pause_interval: float = 0.01):
         if not self.initialized:
             self._init_plot(navigator)
             self.initialized = True
@@ -43,7 +43,7 @@ class SimulationVisualizer:
         # Refresh
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        plt.pause(0.01) # Small pause to allow GUI update
+        plt.pause(pause_interval) # Small pause to allow GUI update
 
     def _init_plot(self, navigator: Navigator):
         # 1. Global Map (Background)
