@@ -4,6 +4,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+import pickle
 
 # --- Path Setup ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,10 +20,13 @@ from src.simulation.visualizer import SimulationVisualizer
 from src.visualization.observers import DebugObserver
 from experiments.benchmark_config import BenchmarkConfig as cfg
 
+# Fixed temp file for replay data
+TEMP_REPLAY_FILE = "temp_replay_data.pkl"
+
 def ensure_log_dir(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 
-def run_experiment(mode="perception", density=0.1, seed=42, algo="HybridA*", show_plot=False, interval=0.01):
+def run_experiment(mode="perception", density=0.1, seed=42, algo="HybridA*", show_plot=False, skip=1):
     print(f"=== Running Experiment (Mode={mode}, Algo={algo}, Density={density}, Seed={seed}) ===")
     
     # 1. Setup Environment
@@ -79,7 +83,7 @@ def run_experiment(mode="perception", density=0.1, seed=42, algo="HybridA*", sho
     if mode == "static":
         run_static_mode(planner, grid_map, algo, density, seed)
     elif mode == "perception":
-        run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, interval)
+        run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, skip)
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -100,7 +104,7 @@ def run_static_mode(planner, grid_map, algo, density, seed):
     # Save Visualization
     save_static_viz(grid_map, cfg.START_STATE, cfg.GOAL_STATE, path, observer, algo, density, seed, success)
 
-def run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, interval):
+def run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, skip):
     print("--- Dynamic Perception Mode ---")
     sensor = Sensor(sensing_radius=20.0)
     
@@ -113,25 +117,77 @@ def run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, in
         vehicle=vehicle
     )
     
-    step_callback = None
-    if show_plot:
-        viz = SimulationVisualizer(title=f"Perception Experiment (D={density})")
-        # Lambda to match signature if needed, but update takes (navigator, interval)
-        step_callback = lambda nav: viz.update(nav, pause_interval=interval)
+    # Recorder Logic
+    frames = []
     
-    print("Starting Navigation...")
+    def recorder_callback(nav: Navigator):
+        # Capture critical data for visualization
+        frame = {
+            'local_map_data': np.copy(nav.local_map.data), # Copy to avoid reference issues
+            'vehicle_x': nav.current_state.x,
+            'vehicle_y': nav.current_state.y,
+            'path_x': [s.x for s in nav.navigated_path],
+            'path_y': [s.y for s in nav.navigated_path],
+            'step': nav.step_count,
+            'replans': nav.replan_count
+        }
+        frames.append(frame)
+
+    print("Starting Navigation (Recording)...")
     t0 = time.time()
-    success = navigator.navigate(max_steps=500, step_callback=step_callback)
+    # If show_plot is enabled, we use the recorder callback
+    callback = recorder_callback if show_plot else None
+    
+    success = navigator.navigate(max_steps=500, step_callback=callback)
     t1 = time.time()
     
     print(f"Navigation Finished. Success: {success}, Duration: {t1-t0:.2f}s")
     print(f"Total Replans: {navigator.replan_count}, Steps: {navigator.step_count}")
     
+    # Save result image FIRST (Backend AGG to avoid window popups if possible)
+    # But saving first is good.
     save_perception_viz(navigator, grid_map, success, density, seed)
     
-    if show_plot:
-        print("Close the plot window to finish.")
-        plt.show()
+    # Replay Phase
+    if show_plot and frames:
+        print(f"Captured {len(frames)} frames. Starting Replay (Skip={skip})...")
+        
+        # Save to fixed temp file (overwrite if exists)
+        with open(TEMP_REPLAY_FILE, 'wb') as f:
+            pickle.dump(frames, f)
+        
+        try:
+            # Replay
+            viz = SimulationVisualizer(title=f"Replay: D={density}")
+            # Initialize with full navigator state context
+            viz._init_plot(navigator) 
+            
+            with open(TEMP_REPLAY_FILE, 'rb') as f:
+                loaded_frames = pickle.load(f)
+            
+            # Use small constant interval for max speed rendering
+            fast_interval = 0.001 
+            
+            # Iterate with skip
+            for i in range(0, len(loaded_frames), skip):
+                frame = loaded_frames[i]
+                viz.update_from_state(frame, pause_interval=fast_interval)
+            
+            # Ensure final frame is shown if missed
+            if (len(loaded_frames) - 1) % skip != 0:
+                 viz.update_from_state(loaded_frames[-1], pause_interval=fast_interval)
+
+            print("Replay Finished. Window is frozen. Close window to clean up and exit.")
+            plt.show() # Blocks until window is closed
+            
+        finally:
+            # Cleanup
+            if os.path.exists(TEMP_REPLAY_FILE):
+                try:
+                    os.remove(TEMP_REPLAY_FILE)
+                    print(f"Cleanup: Removed {TEMP_REPLAY_FILE}")
+                except Exception as e:
+                    print(f"Warning: Failed to remove temp file: {e}")
 
 def save_static_viz(grid_map, start, goal, path, observer, algo, density, seed, success):
     ensure_log_dir("logs/planning_debug")
@@ -167,6 +223,7 @@ def save_static_viz(grid_map, start, goal, path, observer, algo, density, seed, 
     
     outfile = f"logs/planning_debug/debug_viz_{algo}_{seed}.png"
     plt.savefig(outfile)
+    plt.close(fig) # Ensure closure
     print(f"Visualization saved to: {outfile}")
 
 def save_perception_viz(navigator, global_map, success, density, seed):
@@ -200,8 +257,8 @@ def save_perception_viz(navigator, global_map, success, density, seed):
     
     outfile = os.path.join(log_dir, f"perception_viz_d{density}_s{seed}_{'succ' if success else 'fail'}.png")
     plt.savefig(outfile)
+    plt.close(fig) # Ensure closure to avoid extra windows
     print(f"Visualization saved to: {outfile}")
-    plt.close(fig)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -210,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--algo", type=str, default="HybridA*", choices=["HybridA*", "RRT"], help="Algorithm")
     parser.add_argument("--show", action="store_true", help="Show plot")
-    parser.add_argument("--interval", type=float, default=0.0001, help="Animation interval (s)")
+    parser.add_argument("--skip", type=int, default=10, help="Animation skip steps")
     args = parser.parse_args()
     
-    run_experiment(args.mode, args.density, args.seed, args.algo, args.show, args.interval)
+    run_experiment(args.mode, args.density, args.seed, args.algo, args.show, args.skip)

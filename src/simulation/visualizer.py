@@ -45,6 +45,40 @@ class SimulationVisualizer:
         self.fig.canvas.flush_events()
         plt.pause(pause_interval) # Small pause to allow GUI update
 
+    def update_from_state(self, state_data: dict, pause_interval: float = 0.01):
+        if not self.initialized:
+            # We assume init_plot has been called manually or we need a way to pass global map info
+            # Ideally, init_plot should be separated or called before loop.
+            pass
+        
+        # Unpack Data
+        local_data = state_data['local_map_data']
+        vehicle_x = state_data['vehicle_x']
+        vehicle_y = state_data['vehicle_y']
+        path_x = state_data['path_x']
+        path_y = state_data['path_y']
+        step = state_data.get('step', 0)
+        replans = state_data.get('replans', 0)
+
+        # Update Local Map Overlay
+        masked_local = np.ma.masked_where(local_data == 0, local_data)
+        self.local_im.set_data(masked_local)
+        
+        # Update Vehicle Position
+        self.vehicle_plot.set_data([vehicle_x], [vehicle_y])
+        
+        # Update Navigated Path
+        if path_x:
+            self.path_line.set_data(path_x, path_y)
+        
+        # Title
+        self.ax.set_title(f"{self.title} | Step: {step} | Replans: {replans}")
+        
+        # Refresh
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(pause_interval)
+
     def _init_plot(self, navigator: Navigator):
         # 1. Global Map (Background)
         grid_map = navigator.global_map
