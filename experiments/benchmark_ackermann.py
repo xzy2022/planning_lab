@@ -128,7 +128,7 @@ def run_experiment():
     
     results = []
 
-    header = f"{'Density':<8} | {'Algo':<12} | {'Succ%':<6} | {'Time(ms)':<10} | {'Len(m)':<8} | {'Nodes':<8}"
+    header = f"{'Density':<8} | {'Algo':<12} | {'Succ%':<6} | {'Time(ms)':<15} | {'Len(m)':<15} | {'Nodes':<15}"
     log_experiment(header)
     log_experiment("-" * 85)
 
@@ -248,13 +248,20 @@ def run_experiment():
                 
                 succ_rate = (s_data['success'] / cfg.NUM_TRIALS) * 100
                 avg_time = np.mean(s_data['time'])
-                std_time = np.std(s_data['time'])
+                std_time = np.std(s_data['time'], ddof=1) if len(s_data['time']) > 1 else 0.0
+                
                 avg_nodes = np.mean(s_data['nodes'])
-                std_nodes = np.std(s_data['nodes'])
+                std_nodes = np.std(s_data['nodes'], ddof=1) if len(s_data['nodes']) > 1 else 0.0
+                
                 avg_len = np.mean(s_data['length'])
-                std_len = np.std(s_data['length'])
+                std_len = np.std(s_data['length'], ddof=1) if len(s_data['length']) > 1 else 0.0
             
-            res_str = f"{density:<8.2f} | {algo:<12} | {succ_rate:<6.1f} | {avg_time:<10.1f} | {avg_len:<8.1f} | {avg_nodes:<8.1f}"
+            # Format: "Mean ± Std"
+            s_time_str = f"{avg_time:.1f}±{std_time:.1f}"
+            s_len_str = f"{avg_len:.1f}±{std_len:.1f}"
+            s_nodes_str = f"{avg_nodes:.1f}±{std_nodes:.1f}"
+            
+            res_str = f"{density:<8.2f} | {algo:<12} | {succ_rate:<6.1f} | {s_time_str:<15} | {s_len_str:<15} | {s_nodes_str:<15}"
             log_experiment(res_str)
             
             results.append({
