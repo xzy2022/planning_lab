@@ -21,7 +21,7 @@ class BenchmarkConfig:
     # --- Output Paths ---
     _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     _PROJECT_DIR = os.path.dirname(_BASE_DIR)
-    LOG_DIR = os.path.join(_PROJECT_DIR, "logs", "logs_ackermann")
+    LOG_DIR = os.path.join(_PROJECT_DIR, "logs", "experiments_ackermann")
     # Dynamic paths will be generated in benchmark_runner.py based on timestamp
 
     # --- Map Parameters ---
