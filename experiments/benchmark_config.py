@@ -12,7 +12,7 @@ from src.collision.checker import CollisionConfig, CollisionMethod
 class BenchmarkConfig:
     # --- Experiment Settings ---
     DENSITIES = [0.10, 0.15, 0.20]       # Obstacle densities to test
-    NUM_TRIALS = 5                 # Number of trials per density
+    NUM_TRIALS = 10                 # Number of trials per density
     RANDOM_SEED_BASE = 1000        # Base seed for reproducibility
     
     # --- Experiment Mode ---
@@ -20,7 +20,8 @@ class BenchmarkConfig:
 
     # --- Output Paths ---
     _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    LOG_DIR = os.path.join(_BASE_DIR, "logs_ackermann")
+    _PROJECT_DIR = os.path.dirname(_BASE_DIR)
+    LOG_DIR = os.path.join(_PROJECT_DIR, "logs", "logs_ackermann")
     # Dynamic paths will be generated in benchmark_runner.py based on timestamp
 
     # --- Map Parameters ---
