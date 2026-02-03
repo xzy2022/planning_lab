@@ -138,7 +138,7 @@ def run_perception_mode(planner, grid_map, vehicle, density, seed, show_plot, sk
     # If show_plot is enabled, we use the recorder callback
     callback = recorder_callback if show_plot else None
     
-    success = navigator.navigate(max_steps=500, step_callback=callback)
+    success = navigator.navigate(max_steps=cfg.MAX_STEPS, step_callback=callback)
     t1 = time.time()
     
     print(f"Navigation Finished. Success: {success}, Duration: {t1-t0:.2f}s")
