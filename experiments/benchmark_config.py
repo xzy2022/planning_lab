@@ -39,6 +39,9 @@ class BenchmarkConfig:
     
     # Area clearing around start/goal
     CLEAR_RADIUS = 4.0             # meters
+    
+    # Simulation Limits
+    MAX_STEPS = 2000               # Increased for dense RRT paths
 
     # --- Map Generation (Bulldozer) ---
     EXTRA_PATHS = 6
@@ -70,9 +73,9 @@ class BenchmarkConfig:
     
     # 1. RRT Planner
     RRT_PARAMS = {
-        'step_size': 3.0,
+        'step_size': 2.0,          # Reduced for finer steering in tight spaces
         'max_iterations': 10000,
-        'goal_sample_rate': 0.1,
+        'goal_sample_rate': 0.15,  # Increased goal bias
         'goal_threshold': 2.0
     }
 

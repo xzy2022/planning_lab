@@ -189,7 +189,7 @@ class BenchmarkRunner:
         navigator = Navigator(grid_map, planner, sensor, cfg.START_STATE, cfg.GOAL_STATE, vehicle)
         
         t0 = time.time()
-        success = navigator.navigate(max_steps=500)
+        success = navigator.navigate(max_steps=cfg.MAX_STEPS)
         t1 = time.time()
         
         if success:
