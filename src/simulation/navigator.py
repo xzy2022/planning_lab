@@ -1,4 +1,5 @@
 import copy
+import time
 from typing import List, Optional, Tuple
 
 from src.types import State
@@ -102,8 +103,13 @@ class Navigator:
         Triggers planner on local map.
         """
         self.replan_count += 1
-        print(f"Replanning from {self.current_state}...")
+        t0 = time.time()
         new_path = self.planner.plan(self.current_state, self.goal, self.local_map)
+        dt = time.time() - t0
+        
+        status = "SUCCESS" if new_path else "FAILED"
+        print(f"  [Planner] {status} | Time: {dt:.3f}s | PathLen: {len(new_path) if new_path else 0}")
+        
         if new_path:
             self.path = new_path
             return True

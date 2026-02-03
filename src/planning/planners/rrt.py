@@ -66,6 +66,7 @@ class RRTPlanner(PlannerBase):
         best_node = None
         min_dist_to_goal = float('inf')
 
+        print(f"  [RRT] Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}")
         debugger.log(f"Start planning... Max Iter: {self.max_iter}, Step: {self.step_size}", level='INFO', 
                      payload={'max_iter': self.max_iter, 'step_size': self.step_size})
 
@@ -122,7 +123,8 @@ class RRTPlanner(PlannerBase):
                      goal_node = RRTNode(final_state)
                      goal_node.parent = new_node
                      goal_node.path_from_parent = trajectory
-                     return self._reconstruct_path(goal_node)
+                     path = self._reconstruct_path(goal_node)
+                     return self._downsample_path(path) if path else []
                 else:
                     debugger.log(f"Analytic Exp Failed: Dist={final_dist:.2f}, Safe={is_safe}", level='DEBUG')
         
@@ -130,10 +132,27 @@ class RRTPlanner(PlannerBase):
         # This addresses "RRT Failed" when we were actually close enough.
         if best_node and min_dist_to_goal <= self.goal_threshold:
             debugger.log(f"Exact connection to goal failed. Returning closest node (Dist: {min_dist_to_goal:.2f}m)", level='WARN')
-            return self._reconstruct_path(best_node)
+            path = self._reconstruct_path(best_node)
+            return self._downsample_path(path) if path else []
 
         debugger.log("Max iterations reached, path not found.", level='WARN')
         return []
+
+    def _downsample_path(self, path: List[State], distance_threshold: float = 1.0) -> List[State]:
+        """对密集的轨迹进行下采样，适配 Navigator 的步进逻辑"""
+        if not path:
+            return []
+        
+        downsampled = [path[0]]
+        for i in range(1, len(path)):
+            last = downsampled[-1]
+            curr = path[i]
+            dist = math.hypot(curr.x - last.x, curr.y - last.y)
+            # 只有当距离超过阈值或者到了最后一个点才加入
+            if dist >= distance_threshold or i == len(path) - 1:
+                downsampled.append(curr)
+        
+        return downsampled
 
     def _check_collision_trajectory(self, trajectory: List[State], grid_map: GridMap) -> bool:
         """辅助函数：检查一段轨迹是否碰撞"""
@@ -155,16 +174,33 @@ class RRTPlanner(PlannerBase):
         
         rx = random.uniform(0, phys_w)
         ry = random.uniform(0, phys_h)
+        # 增加随机航向角采样 [优化点]
+        rtheta = random.uniform(-math.pi, math.pi)
         
-        return State(rx, ry, 0.0)
+        return State(rx, ry, rtheta)
 
     def _get_nearest_node(self, node_list: List[RRTNode], rnd_state: State) -> RRTNode:
-        """寻找最近节点 (欧氏距离)"""
-        # 注意：对于非完整约束车辆，欧氏距离不是完美的度量，但在 RRT 中通常作为一种可接受的启发式
-        dists = [(node.x - rnd_state.x)**2 + (node.y - rnd_state.y)**2 
-                 for node in node_list]
-        min_idx = dists.index(min(dists))
-        return node_list[min_idx]
+        """寻找最近节点 (混合距离：欧氏距离 + 航向角权重)"""
+        theta_weight = 2.0 # 航向角权重系数
+        
+        best_node = node_list[0]
+        min_dist = float('inf')
+        
+        # 预计算 rnd_state 的局部变量
+        rx, ry, rtheta = rnd_state.x, rnd_state.y, rnd_state.theta_rad
+        
+        for node in node_list:
+            d_dist = (node.x - rx)**2 + (node.y - ry)**2
+            # 航向角差异优化
+            d_theta = abs(self.vehicle.normalize_angle(node.state.theta_rad - rtheta))
+            
+            combined_dist = d_dist + (theta_weight * d_theta)**2
+            
+            if combined_dist < min_dist:
+                min_dist = combined_dist
+                best_node = node
+                
+        return best_node
 
     def _steer(self, from_node: RRTNode, to_state: State) -> RRTNode:
         """
