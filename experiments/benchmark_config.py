@@ -11,8 +11,8 @@ from src.collision.checker import CollisionConfig, CollisionMethod
 
 class BenchmarkConfig:
     # --- Experiment Settings ---
-    DENSITIES = [0.10, 0.15, 0.20]       # Obstacle densities to test
-    NUM_TRIALS = 10                 # Number of trials per density
+    DENSITIES = [0.05, 0.10, 0.15, 0.20, 0.25]       # Obstacle densities to test
+    NUM_TRIALS = 100                 # Number of trials per density
     RANDOM_SEED_BASE = 1000        # Base seed for reproducibility
     
     # --- Experiment Mode ---

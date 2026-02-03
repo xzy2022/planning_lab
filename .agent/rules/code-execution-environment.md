@@ -1,5 +1,5 @@
 ---
-trigger: model_decision
+trigger: always_on
 description: 当尝试在终端运行代码时
 ---
 
